@@ -48,5 +48,3 @@ To effortlessly account for the required 30-minute refueling time, we expand the
 * The Fix: The implementation uses a high-performance custom endpoint (/api/bookings/unavailable?ship_id=X&date=YYYY-MM-DD). The frontend simply hands off a target date, and the backend handles all calculations, returning a streamlined array containing only the coordinates that are locked out for that specific window.
 * 
 
-Would you like to draft a README.md file containing the installation guide, dependencies, and startup steps for this Django setup next?
-
