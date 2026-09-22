@@ -1,73 +1,99 @@
-# 🌌 Spaceport Charter Fleet Management System
-Welcome to the Pacific Spaceport Dispatch Control Matrix. This full-stack application replaces a manual system of whiteboards and clipboards with an automated scheduling platform built on a robust, transaction-safe backend architecture.
-------------------------------
-## 🛠️ Tech Stack & Technical Rationale
-This project prioritizes data integrity, precise temporal math, and responsive user experiences under strict constraints.
+# Pacific Spaceport
 
-* Frontend: React (Vite) with native hooks for clean, atomic layout rendering.
-* Backend: Python 3.10+ / Django 4.2+ using Django REST Framework (DRF). Chosen for its native data validation layer, highly expressive ORM, and integrated transaction management.
-* Database: SQLite. Zero-configuration, file-based database engine tailored perfectly for deterministic operations at this scale.
+A small React + Django application for chartering ships and reviewing the fleet's bookings. No authentication is required.
 
-------------------------------
-## 🏗️ Core Architecture & System Features## 1. Robust Timezone Engineering
-The spaceport runs entirely on Central Time (America/Chicago) with rigid operational limits (06:00 AM to 10:00 PM).
+- **Charter a ship:** choose a spacecraft and a Central Time date, view unavailable windows supplied by the backend, and submit a booking with a pilot name.
+- **Fleet manager:** view all bookings grouped by ship, optionally filtered by their Central Time date.
+- **Rules:** each flight must fit entirely within 06:00–22:00 on one Central Time day. Bookings on the same ship must have at least 30 minutes between them.
 
-* The Pipeline: The React frontend captures user-specified dates and times, converting them into standard ISO-8601 offset strings.
-* Storage Uniformity: The Django framework captures the string, explicitly normalizes the time via zoneinfo to enforce localized operating hour business logic, and saves it seamlessly to the database in UTC. This isolation strategy protects the platform against Daylight Saving Time gaps and synchronization bugs.
+The original [challenge rules](documentation/rules.md) are preserved.
 
-## 2. Transaction-Safe Collision Isolation
-The system must guarantee zero overlapping bookings while enforcing an additional 30-minute refueling buffer between consecutive flights.
+## Run locally
 
-* Rather than dangerously fetching logs to calculate intervals on the client, validation happens directly in the database layers via an interval intersection query window (end_time > check_start AND start_time < check_end).
-* Concurrency Control: Evaluating constraints inside unified database lookups prevents multi-user race conditions (where two dispatchers hit "Submit" simultaneously for the same slot).
+Requires **Python 3.12+** and **Node.js 22.12+**. Run backend commands from the repository root.
 
-## 3. High Performance Query Indexes
-A compound relational index is defined across the scheduling vectors:
-
-models.Index(fields=['ship', 'start_time', 'end_time'])
-
-This design restructures lookups from a linear sequential table scan $\mathcal{O}(N)$ down to a fast logarithmic search binary B-Tree traversal $\mathcal{O}(\log N)$, keeping the dashboard lag-free as tracking history expands.
-------------------------------
-## 🚀 Quickstart & Installation Guide## 1. Clone & Initialize Backend Environment
-Navigate into your server directory, configure a python virtual environment, and pull the required dependencies:
-
-# Create and activate environment
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-# Install dependencies
-pip install django djangorestframework django-cors-headers
-
-## 2. Run Database Migrations & Hydrate Seeds
-Generate standard tracking tables and trigger the automated ingestion command to load historical records from the provided seed generator:
-
-# Run Django Migrations
-python manage.py makemigrations
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 python manage.py migrate
-# Generate seed file and populate the DB engine
 python seed.py > seed.json
 python manage.py load_seed
+python manage.py runserver 127.0.0.1:8000
+```
 
-## 3. Boot Up the Engines
-Start your local development infrastructure endpoints:
+`load_seed [path]` replaces all ships and bookings in one transaction. Re-running it resets the data; a failed import rolls back the changes. The provided generator produces five ships and 3,000 bookings. Most seed bookings are historical, so an empty calendar on today's date is normal; use the dashboard to find dates with existing bookings.
 
-# Start Django Server
-python manage.py runserver
+In a second terminal:
 
-The server will bind and expose your REST APIs directly at http://localhost:8000/.
-------------------------------
-## 🗺️ System Blueprint Directory
+```sh
+cd frontend
+npm ci
+npm run dev
+```
 
-├── documentation/
-│   └── rules.md             # Original take-home parameters & guidelines
-├── spaceport_project/       # Django Project settings configuration 
-├── charter_app/             # Core Backend Application Core
-│   ├── management/
-│   │   └── commands/
-│   │       └── load_seed.py # Automated DB hydration parsing command
-│   ├── models.py            # SQLite Relational schemas & Compound Indices
-│   ├── serializers.py       # DRF Local Operating hour & Refueling Math rules
-│   └── views.py             # Highly optimized endpoint controllers
-└── frontend/                # React (Vite) User Interfaces
+Open **http://127.0.0.1:5173**. Vite proxies `/api` to Django, so no CORS configuration is needed. SQLite is created locally at `db.sqlite3`; it is not committed.
 
+## Verify
 
+```sh
+# Repository root, with the Python environment activated
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test
 
+cd frontend
+npm test
+npm run build
+```
+
+Backend tests cover operating boundaries, overnight rejection, overlaps, the exact refueling boundary, timezone offsets and DST dates, invalid inputs, unavailable windows, seed rollback, and simultaneous requests using separate connections to a file-backed test database. Frontend tests cover Central Time conversion and date grouping.
+
+`npm run preview` serves the built frontend and proxies API requests to the running Django backend. Development settings and servers are for local evaluation, not a production deployment.
+
+## API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/ships` | Fleet IDs and names |
+| `GET /api/bookings/unavailable?ship_id=1&date=2026-09-21` | Opening/closing times and merged unavailable windows, including refueling, clipped to that Central date |
+| `POST /api/bookings` | Validate and create a booking |
+| `GET /api/dashboard` | Ships and all bookings, chronologically ordered; the screen groups by ship |
+| `GET /api/bookings` | Same fleet and booking dataset |
+
+Example booking:
+
+```json
+{
+  "shipId": 1,
+  "pilotName": "Ellen Ripley",
+  "startTime": "2026-09-21T09:00:00-05:00",
+  "endTime": "2026-09-21T10:00:00-05:00"
+}
+```
+
+Success returns the booking, including its `id`, with HTTP 201. Invalid or conflicting bookings return HTTP 400. A lock timeout returns HTTP 503 so the user can retry. Timestamps must include an offset or `Z`.
+
+## Design decisions
+
+Django REST Framework validates API inputs; SQLite keeps local setup small. Dates are stored in UTC and interpreted in `America/Chicago` for the rules. Luxon turns the selected date and clock time into a Central Time timestamp independently of the browser's timezone.
+
+A conflict exists when an existing booking ends after the requested start minus 30 minutes **and** starts before the requested end plus 30 minutes. Strict comparisons allow an exact 30-minute gap. The availability endpoint applies the same buffer, merges overlapping blocked intervals, and clips them to operating hours. The booking screen does not fetch the full bookings list.
+
+Creation runs validation and insertion inside one SQLite `IMMEDIATE` transaction. SQLite reserves the writer before the conflict read, so another writer waits and then checks the committed booking. A plain ORM query or `atomic()` with SQLite's default deferred mode would not provide the same guarantee. This deliberately serializes writers across the database, which is reasonable for this small challenge. See [Django's SQLite transaction documentation](https://docs.djangoproject.com/en/5.2/ref/databases/#transactions-behavior).
+
+The database also checks positive duration. Operating hours and overlap rules are enforced by the API, so direct ORM writes must respect them; the seed importer is intended for the supplied trusted data. The `(ship, start_time, end_time)` index helps restrict conflict queries, but does not guarantee logarithmic cost for an arbitrary interval search.
+
+## Scope and next steps
+
+The implementation focuses on the two requested screens and booking correctness. It intentionally omits authentication, cancellations, and editing. The dashboard loads the full challenge dataset; a larger deployment would need server-side filtering and pagination. A higher-write-volume deployment would need a different database concurrency strategy. Production would also need deployment settings, static asset serving, and automated browser tests in CI.
+
+## Layout
+
+```text
+charter_app/          Models, API, migration, tests, seed command
+spaceport_project/   Django configuration
+frontend/            React, Vite, Central Time helpers and tests
+seed.py              Original seed generator
+documentation/       Challenge rules and architecture notes
+```
