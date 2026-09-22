@@ -8,6 +8,8 @@ A small React + Django application for chartering ships and reviewing the fleet'
 
 The original [challenge rules](documentation/rules.md) are preserved.
 
+See the [implementation walkthrough and ordered MVP plan](documentation/implementation-and-mvp.md) for the full explanation, recruiter feedback, and remaining acceptance checks. The recruiter's end-only refueling clarification exposes a pending correction: the current availability display adds a buffer before each flight as well as after it.
+
 ## Run locally
 
 Requires **Python 3.12+** and **Node.js 22.12+**. Run backend commands from the repository root.
