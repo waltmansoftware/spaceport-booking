@@ -248,7 +248,7 @@ The database constraint enforces positive duration. Operating hours and conflict
 
 ### Seed generation and import
 
-The supplied generator is preserved as seed_original.py. The active seed.py creates 600 randomized historical flights per ship using that timing pattern, then adds one or two well-spaced flights per ship per day for the next seven days. Default generation uses fresh randomness; `--random-seed` provides deterministic output for tests and troubleshooting.
+The supplied generator is preserved as seed_original.py. The active seed.py creates 600 randomized historical flights per ship using that timing pattern, then adds one or two well-spaced flights per ship per day for today and the next seven days. Default generation uses fresh randomness; `--random-seed` provides deterministic output for tests and troubleshooting.
 
 The development launcher imports a fresh seed every time it starts, intentionally replacing local bookings from the previous run. Seed tests verify operating hours, refueling gaps, historical bounds, seven-day future coverage, the two-flight future density cap, and deterministic generation when requested.
 

@@ -27,7 +27,7 @@ py -3.12 dev.py
 
 The script installs missing dependencies, replaces local data with a fresh randomized seed, and starts both servers. Open **http://127.0.0.1:5173** and press Ctrl-C when you are done. **Every launch resets local ships and bookings**, including bookings created during the previous run.
 
-The seed includes historical sample data plus one or two bookings per ship per day for the next seven days. See the [development guide](documentation/development-guide.md) for deterministic seed generation and manual setup.
+The seed includes historical sample data plus one or two bookings per ship per day for today and the next seven days. See the [development guide](documentation/development-guide.md) for deterministic seed generation and manual setup.
 
 ## Verify
 

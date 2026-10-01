@@ -42,7 +42,7 @@ Vite proxies `/api` to Django, so local development does not need a separate COR
 `python seed.py > seed.json` generates five ships with:
 
 - 600 randomized historical bookings per ship from the previous year.
-- One or two bookings per ship per day from tomorrow through seven days from today.
+- One or two bookings per ship per day from today through seven days from today (eight dates in total).
 
 No future ship-day receives more than two seeded flights, leaving substantial room for manual bookings. Normal generation uses fresh randomness. For reproducible data, set both the Central date and random seed:
 
@@ -50,7 +50,7 @@ No future ship-day receives more than two seeded flights, leaving substantial ro
 python seed.py --today 2026-10-01 --random-seed 42 > seed.json
 ```
 
-That produces historical data before October 1 and light future schedules for October 2–8.
+That produces historical data before October 1 and light schedules for October 1–8. Today's sample schedule covers the whole operating day, including flights that may already have departed when you start the app.
 
 The original generator is preserved byte-for-byte as `seed_original.py`. Running it directly produces its standalone 3,000-booking output:
 
@@ -83,7 +83,7 @@ npm run build
 
 Backend tests cover past-booking rejection, operating boundaries, overnight rejection, overlaps, exact refueling gaps, timezone offsets, daylight-saving dates, malformed input, unavailable windows, seed rollback, and simultaneous requests through separate connections. They import historical and future records, display both in the dashboard and availability endpoint, and reject conflicts against imported data.
 
-The seed tests prove that history remains valid, the next seven days are covered, each future ship-day has at most two flights, and an explicit random seed is reproducible. Frontend tests cover Central Time conversion, date grouping, and past-time detection.
+The seed tests prove that history remains valid, today and the next seven days are covered, each seeded ship-day in that window has at most two flights, and an explicit random seed is reproducible. Frontend tests cover Central Time conversion, date grouping, and past-time detection.
 
 ## Browser acceptance tests
 

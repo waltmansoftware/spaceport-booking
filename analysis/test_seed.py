@@ -17,7 +17,7 @@ from seed import (
 
 
 class SeedTests(unittest.TestCase):
-    def test_valid_history_and_lightly_booked_future_week(self):
+    def test_valid_history_and_light_bookings_today_through_next_week(self):
         for anchor in [date(2026, 10, 1), date(2026, 3, 8), date(2026, 11, 1), date(2024, 2, 29)]:
             with self.subTest(anchor=anchor):
                 data = generate_seed(anchor, random_seed=42)
@@ -39,15 +39,15 @@ class SeedTests(unittest.TestCase):
 
                 for rows in groups.values():
                     rows.sort()
-                    historical = [(start, end) for start, end in rows if start.date() <= anchor]
-                    future = [(start, end) for start, end in rows if start.date() > anchor]
+                    historical = [(start, end) for start, end in rows if start.date() < anchor]
+                    future = [(start, end) for start, end in rows if start.date() >= anchor]
                     self.assertEqual(len(historical), HISTORICAL_BOOKINGS_PER_SHIP)
                     self.assertTrue(all(
                         anchor - timedelta(days=HISTORY_DAYS) <= start.date() < anchor
                         for start, _ in historical
                     ))
                     self.assertTrue(all(
-                        anchor < start.date() <= anchor + timedelta(days=FUTURE_DAYS)
+                        anchor <= start.date() <= anchor + timedelta(days=FUTURE_DAYS)
                         for start, _ in future
                     ))
                     by_day = defaultdict(list)
@@ -55,7 +55,7 @@ class SeedTests(unittest.TestCase):
                         by_day[start.date()].append((start, end))
                     self.assertEqual(
                         set(by_day),
-                        {anchor + timedelta(days=offset) for offset in range(1, FUTURE_DAYS + 1)},
+                        {anchor + timedelta(days=offset) for offset in range(FUTURE_DAYS + 1)},
                     )
                     self.assertTrue(all(
                         1 <= len(day_rows) <= MAX_FUTURE_BOOKINGS_PER_SHIP_DAY

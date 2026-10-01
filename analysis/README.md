@@ -4,7 +4,7 @@ This folder contains investigations and reproducible calculations that support t
 
 - `capacity-and-utilization.md` documents annual fleet capacity and compares the combined file's consecutive periods.
 - `seed_utilization.py` calculates flight, refueling, busy, and available time for a chosen date window.
-- `test_seed.py` verifies randomized history, light coverage of the next seven days, record validity, and reproducibility when a random seed is supplied.
+- `test_seed.py` verifies randomized history, light coverage of today and the next seven days, record validity, and reproducibility when a random seed is supplied.
 - `test_seed_utilization.py` checks the calculation rules independently of Django.
 
 Run the analysis and its tests from the repository root:

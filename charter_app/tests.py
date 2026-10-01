@@ -208,6 +208,18 @@ class ImportedSeedTests(TestCase):
                 self.assertEqual(result.status_code, 400)
                 self.assertEqual(Booking.objects.count(), expected_count)
 
+    def test_imported_today_has_availability_for_every_ship(self):
+        for ship in self.seed_data['ships']:
+            with self.subTest(ship=ship['id']):
+                response = self.client.get('/api/bookings/unavailable', {
+                    'ship_id': ship['id'], 'date': '2026-09-30'})
+                self.assertEqual(response.status_code, 200)
+                self.assertGreaterEqual(len(response.data['schedule']), 1)
+                self.assertLessEqual(len(response.data['schedule']), 2)
+                self.assertTrue(response.data['unavailableSlots'])
+                self.assertTrue(all(entry['start'].startswith('2026-09-30T')
+                                    for entry in response.data['schedule']))
+
     def test_insert_before_and_after_imported_flight_at_exact_buffer(self):
         future = self.seed_data['bookings'][3000:]
         counts = {}

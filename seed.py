@@ -1,4 +1,4 @@
-"""Generate randomized historical data plus one lightly booked future week.
+"""Generate randomized history plus light bookings for today and the next week.
 
     python seed.py > seed.json
     python seed.py --today 2026-10-01 --random-seed 42 > seed.json
@@ -63,10 +63,10 @@ def generate_historical_bookings(ship_id, period_start, rng):
 
 
 def generate_future_bookings(ship_id, today, rng):
-    """Generate one or two well-spaced flights on each of the next seven days."""
+    """Generate one or two well-spaced flights today and on the next seven days."""
     bookings = []
     candidate_hours = [7, 10, 13, 16, 19]
-    for offset in range(1, FUTURE_DAYS + 1):
+    for offset in range(FUTURE_DAYS + 1):
         day = today + timedelta(days=offset)
         count = rng.randint(1, MAX_FUTURE_BOOKINGS_PER_SHIP_DAY)
         for hour in sorted(rng.sample(candidate_hours, count)):

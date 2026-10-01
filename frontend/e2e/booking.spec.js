@@ -16,6 +16,8 @@ test("future booking, conflicts, and exact refueling gaps", async ({
 
   await page.goto("/");
   await page.getByLabel("Spacecraft").selectOption("1");
+  await expect(page.getByLabel("Departure date")).toHaveValue(centralDay(0));
+  await expect(page.getByRole("list", { name: "Day schedule" })).toBeVisible();
   await page.getByLabel("Departure date").fill(bookingDate);
   await expect(page.getByText("Clear for departure.")).toBeVisible();
   expect(
