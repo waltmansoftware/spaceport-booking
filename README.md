@@ -37,6 +37,8 @@ python manage.py test
 python -m unittest analysis.test_seed analysis.test_seed_utilization
 
 # Frontend directory
+npm run format:check
+npm run spellcheck
 npm run typecheck
 npm test
 npm run build

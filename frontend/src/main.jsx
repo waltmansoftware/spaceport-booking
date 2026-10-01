@@ -399,7 +399,10 @@ function App() {
                       <span aria-hidden="true">✧</span>
                       <h3>Clear for departure.</h3>
                       <p>No bookings or refueling windows on this date.</p>
-                      <button className="secondary" onClick={() => setScreen("fleet")}>
+                      <button
+                        className="secondary"
+                        onClick={() => setScreen("fleet")}
+                      >
                         Browse booked dates
                       </button>
                     </div>
@@ -407,9 +410,9 @@ function App() {
                   <div className="availability-footer">
                     Book outside these windows, between{" "}
                     {clock(currentAvailability.opensAt)} and{" "}
-                    {clock(currentAvailability.closesAt)}. You may depart when
-                    a blocked window ends. Return at least 30 minutes before
-                    the next flight to allow your own refueling.
+                    {clock(currentAvailability.closesAt)}. You may depart when a
+                    blocked window ends. Return at least 30 minutes before the
+                    next flight to allow your own refueling.
                   </div>
                 </>
               )}

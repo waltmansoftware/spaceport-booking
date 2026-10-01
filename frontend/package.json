@@ -9,7 +9,10 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --strictPort",
     "build": "vite build",
+    "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"*.{js,json,html}\" \"../.github/**/*.{yml,yaml}\" ../cspell.json",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,css}\" \"*.{js,json,html}\" \"../.github/**/*.{yml,yaml}\" ../cspell.json",
     "preview": "vite preview --host 127.0.0.1",
+    "spellcheck": "cspell --root .. --config ../cspell.json \"**/*.{md,py,js,jsx,json,yml,yaml,css,html}\"",
     "test": "node --test src/*.test.js",
     "typecheck": "tsc --project jsconfig.json",
     "test:e2e": "playwright test"
@@ -25,6 +28,8 @@
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "cspell": "^10.3.6",
+    "prettier": "^3.9.9",
     "typescript": "^7.0.2",
     "vite": "^7.1.0"
   }
