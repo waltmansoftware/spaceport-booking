@@ -21,7 +21,7 @@ test("selected clock times use Central offsets throughout the year", () => {
     "2026-11-01T06:00:00.000-06:00",
   );
 });
-test("dashboard groups UTC timestamps by their Central date", () => {
+test("schedule links and labels use the Central date of UTC timestamps", () => {
   assert.equal(localDate("2026-09-22T02:00:00Z"), "2026-09-21");
   assert.equal(clock("2026-09-22T02:00:00Z"), "9:00 PM");
   assert.equal(dayLabel("2026-09-21T12:00:00"), "Sep 21, 2026");

@@ -49,4 +49,15 @@ Reproduction commands are in the [README](../README.md). Browser scenarios are i
 
 ## Remaining handoff and limitations
 
-Review the UI, then commit and publish the tested source when ready. Public submission, deployment, and messaging the recruiter were not performed. The application remains a local assessment MVP: no authentication, editing, cancellation, or pagination. Seed import assumes trusted data, and final refueling after a 22:00 return is permitted under the documented booking-hours interpretation.
+Review the UI, then commit and publish the tested source when ready. Public submission, deployment, and messaging the recruiter were not performed. The application remains a local assessment MVP: no authentication, editing, or cancellation. Seed import assumes trusted data, and final refueling after a 22:00 return is permitted under the documented booking-hours interpretation.
+
+## Backend filtering and pagination audit — October 1, 2026
+
+The charter screen already used the dedicated availability endpoint. The audit found that both list endpoints returned unlimited history and the fleet screen filtered and grouped it in React. Those paths now use Django ship/date filters, SQL pagination (50 by default, maximum 100), and backend dashboard grouping. The ship selector retains its small ID/name catalog; availability retains its complete selected-day schedule.
+
+- 24 Django tests and 6 seed/utilization tests passed. New checks verify bounded SQL pages, two-query list responses, ship/date filtering, stable page traversal at tied timestamps, invalid and empty filters, complete daily availability, and Central date boundaries on both DST transition days.
+- All 4 Playwright scenarios passed using installed Chrome and a disposable database. Browser checks exercise pagination, resetting filters to page 1, empty results, historical/future schedule links, and direct rendering of deliberately independent backend unavailable windows. Charter requests never fetch booking history.
+- Frontend type checking, 3 JavaScript tests, production build, formatting, spelling, migration consistency, and diff whitespace checks passed.
+- SQLite query plans were inspected on a migrated copy of the local database. Date pages use `booking_start_id`, ship/date pages use `booking_ship_start_id` without a temporary sort, and conflict lookups use the covering `booking_ship_end_start` index. Availability selects only schedule fields and filters ship/overlapping times in SQL.
+
+These checks cover this checkout; the earlier clean-copy rehearsal was not repeated for this change. Numbered pagination still incurs matching-row counts and offset costs on deep pages.

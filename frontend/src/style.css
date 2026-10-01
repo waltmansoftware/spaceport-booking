@@ -379,8 +379,13 @@ select:focus {
 }
 .fleet-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 15px;
   align-items: end;
+}
+.fleet-pagination {
+  display: flex;
+  gap: 15px;
 }
 .fleet-toolbar label {
   margin: 0;

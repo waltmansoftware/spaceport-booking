@@ -39,6 +39,8 @@ function App() {
   const [fleet, setFleet] = useState(null);
   const [fleetError, setFleetError] = useState("");
   const [fleetDate, setFleetDate] = useState("");
+  const [fleetShipId, setFleetShipId] = useState("");
+  const [fleetPage, setFleetPage] = useState(1);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -67,7 +69,7 @@ function App() {
     let active = true;
     setAvailability(null);
     setAvailabilityError("");
-    if (shipId && date) {
+    if (screen === "charter" && shipId && date) {
       api(
         `bookings/unavailable?ship_id=${encodeURIComponent(shipId)}&date=${encodeURIComponent(date)}`,
       )
@@ -81,14 +83,20 @@ function App() {
     return () => {
       active = false;
     };
-  }, [shipId, date, revision]);
+  }, [screen, shipId, date, revision]);
 
   useEffect(() => {
     if (screen !== "fleet") return;
     let active = true;
     setFleet(null);
     setFleetError("");
-    api("dashboard")
+    const params = new URLSearchParams({
+      page: String(fleetPage),
+      page_size: "50",
+    });
+    if (fleetDate) params.set("date", fleetDate);
+    if (fleetShipId) params.set("ship_id", fleetShipId);
+    api(`dashboard?${params}`)
       .then((data) => {
         if (active) setFleet(data);
       })
@@ -98,7 +106,17 @@ function App() {
     return () => {
       active = false;
     };
-  }, [screen, revision]);
+  }, [screen, revision, fleetDate, fleetShipId, fleetPage]);
+
+  function changeFleetFilter(setter, value) {
+    setFleetPage(1);
+    setter(value);
+  }
+
+  function changeFleetPage(page) {
+    setFleet(null);
+    setFleetPage(page);
+  }
 
   async function book(event) {
     event.preventDefault();
@@ -422,14 +440,35 @@ function App() {
           <section>
             <div className="fleet-toolbar">
               <label>
+                Filter by spacecraft
+                <select
+                  value={fleetShipId}
+                  onChange={(e) =>
+                    changeFleetFilter(setFleetShipId, e.target.value)
+                  }
+                >
+                  <option value="">All spacecraft</option>
+                  {ships.map((ship) => (
+                    <option key={ship.id} value={ship.id}>
+                      {ship.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 Filter by Central date
                 <input
                   type="date"
                   value={fleetDate}
-                  onChange={(e) => setFleetDate(e.target.value)}
+                  onChange={(e) =>
+                    changeFleetFilter(setFleetDate, e.target.value)
+                  }
                 />
               </label>
-              <button className="secondary" onClick={() => setFleetDate("")}>
+              <button
+                className="secondary"
+                onClick={() => changeFleetFilter(setFleetDate, "")}
+              >
                 Show all dates
               </button>
               <button
@@ -451,66 +490,70 @@ function App() {
                   {fleetDate
                     ? `Flights on ${fleetDate}`
                     : "All dates, including seeded history"}{" "}
-                  · {fleet.ships.length} ships
+                  · {fleet.count} charters · Page {fleet.page} of{" "}
+                  {fleet.totalPages}
                 </p>
-                {fleet.ships.map((ship) => {
-                  const bookings = fleet.bookings.filter(
-                    (b) =>
-                      b.shipId === ship.id &&
-                      (!fleetDate || localDate(b.startTime) === fleetDate),
-                  );
-                  return (
-                    <article className="panel fleet-panel" key={ship.id}>
-                      <div className="fleet-heading">
-                        <h2>{ship.name}</h2>
-                        <span className="badge">
-                          {bookings.length} charters
-                        </span>
-                      </div>
-                      {bookings.length ? (
-                        <div className="table-scroll">
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>Date</th>
-                                <th>Pilot</th>
-                                <th>Departure</th>
-                                <th>Return</th>
-                                <th>Booking</th>
-                                <th>Schedule</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {bookings.map((b) => (
-                                <tr key={b.id}>
-                                  <td>{dayLabel(b.startTime)}</td>
-                                  <td>{b.pilotName}</td>
-                                  <td>{clock(b.startTime)}</td>
-                                  <td>{clock(b.endTime)}</td>
-                                  <td>#{b.id}</td>
-                                  <td>
-                                    <button
-                                      className="secondary"
-                                      onClick={() => openSchedule(b)}
-                                      aria-label={`Open schedule for booking ${b.id}`}
-                                    >
-                                      Open schedule
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="form-note">
-                          No charters{fleetDate ? " on this date" : ""}.
-                        </p>
-                      )}
-                    </article>
-                  );
-                })}
-                {!fleet.ships.length && <p>No ships are loaded yet.</p>}
+                <div className="fleet-pagination" aria-label="Flight log pages">
+                  <button
+                    className="secondary"
+                    disabled={!fleet.previous}
+                    onClick={() => changeFleetPage(fleet.page - 1)}
+                  >
+                    Previous page
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={!fleet.next}
+                    onClick={() => changeFleetPage(fleet.page + 1)}
+                  >
+                    Next page
+                  </button>
+                </div>
+                {fleet.ships.map((ship) => (
+                  <article className="panel fleet-panel" key={ship.id}>
+                    <div className="fleet-heading">
+                      <h2>{ship.name}</h2>
+                      <span className="badge">
+                        {ship.bookings.length} charters on this page
+                      </span>
+                    </div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Pilot</th>
+                            <th>Departure</th>
+                            <th>Return</th>
+                            <th>Booking</th>
+                            <th>Schedule</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ship.bookings.map((b) => (
+                            <tr key={b.id}>
+                              <td>{dayLabel(b.startTime)}</td>
+                              <td>{b.pilotName}</td>
+                              <td>{clock(b.startTime)}</td>
+                              <td>{clock(b.endTime)}</td>
+                              <td>#{b.id}</td>
+                              <td>
+                                <button
+                                  className="secondary"
+                                  onClick={() => openSchedule(b)}
+                                  aria-label={`Open schedule for booking ${b.id}`}
+                                >
+                                  Open schedule
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                ))}
+                {!fleet.count && <p>No charters match these filters.</p>}
               </>
             )}
           </section>

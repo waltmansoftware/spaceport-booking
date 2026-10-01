@@ -20,10 +20,10 @@ The browser interprets date and time controls in America/Chicago using Luxon, ra
 
 The availability endpoint queries only intervals that could affect the selected ship's operating day. Each blocked interval starts at departure and ends 30 minutes after the flight ends. It clips these intervals to opening and closing, then merges overlapping or touching windows. It also supplies individual flights and their calculated refueling intervals for the schedule. The frontend formats this response without deriving availability from full booking history or adding buffers.
 
-The dashboard retrieves the local fixture in two queries (ships and bookings). React groups it by ship and can filter by Central date. Each booking links to its ship/date on the charter screen, which loads the dedicated availability endpoint. This remains simple enough for the development fixture; larger data calls for backend pagination and filtering.
+The dashboard applies spacecraft and Central-date filters in Django, counts matching bookings, and fetches a bounded chronological page with joined ship names. Django groups that page by ship; React renders the supplied groups and previous/next controls. Pages default to 50 bookings and cannot exceed 100. Each booking links to its ship/date on the charter screen, which loads the dedicated availability endpoint.
 
 ## Indexing and verification
 
-A compound index beginning with ship narrows relevant interval queries. Range predicates still have a cost proportional to the candidate rows inspected; no blanket O(log N) claim is made.
+Indexes on start time/ID and ship/start time/ID support chronological pages and date bounds. A ship/end time/start time index supports conflict lookups. Range predicates, matching-row counts, and deep page offsets still have a cost proportional to the candidate rows inspected; no blanket O(log N) claim is made.
 
 The test suite includes separate-connection concurrent requests, past-start rejection, opening/closing boundaries, short refueling gaps, date/time conversion, invalid IDs, availability merging, and seed rollback. Imported-seed regressions verify historical and future records. JavaScript unit tests check time conversion and past-time detection. Playwright runs both screens against a temporary seeded database, including exact-gap insertions, conflicts, dashboard navigation, Tokyo timezone, and mobile layout. The README lists the commands.

@@ -5,7 +5,7 @@ A React and Django application for chartering ships and reviewing fleet bookings
 The application has two screens:
 
 - **Charter a ship:** select a spacecraft and Central Time date, inspect backend-calculated availability, and create a booking.
-- **Fleet manager:** browse bookings by ship and open any booking's daily schedule.
+- **Fleet manager:** browse server-paginated bookings, filter by spacecraft or Central date, and open any booking's daily schedule.
 
 Bookings must start in the future and remain within 06:00–22:00 Central Time. Flights on the same ship cannot overlap and require 30 minutes of refueling after each flight.
 

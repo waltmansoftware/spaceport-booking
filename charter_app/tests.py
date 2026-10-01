@@ -9,8 +9,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import TestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from .models import Booking, Ship
 
@@ -40,7 +41,8 @@ class BookingTests(TestCase):
         self.assertEqual(result.data['pilotName'], 'Ellen Ripley')
         with self.assertNumQueries(2):
             dashboard = self.client.get('/api/dashboard')
-        self.assertEqual(len(dashboard.data['bookings']), 1)
+        self.assertEqual(dashboard.data['count'], 1)
+        self.assertEqual(len(dashboard.data['ships'][0]['bookings']), 1)
         self.assertEqual(dashboard.data['ships'][0]['name'], 'Nostromo')
         self.assertEqual(self.client.post('/api/dashboard', {}, format='json').status_code, 405)
 
@@ -127,7 +129,9 @@ class BookingTests(TestCase):
                                        endTime=f'2026-09-21T{end}:00-05:00').status_code, 201)
         self.post(startTime='2026-09-20T12:00:00-05:00', endTime='2026-09-20T13:00:00-05:00')
         self.post(shipId=Ship.objects.create(name='Other').pk)
-        result = self.client.get('/api/bookings/unavailable', {'ship_id': self.ship.pk, 'date': '2026-09-21'})
+        with self.assertNumQueries(2):
+            result = self.client.get('/api/bookings/unavailable', {
+                'ship_id': self.ship.pk, 'date': '2026-09-21'})
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.data['unavailableSlots'], [
             {'start': '2026-09-21T06:00:00-05:00', 'end': '2026-09-21T08:30:00-05:00'},
@@ -186,10 +190,13 @@ class ImportedSeedTests(TestCase):
     def test_imported_history_and_future_are_visible_and_block_conflicts(self):
         dashboard = self.client.get('/api/dashboard')
         expected_count = len(self.seed_data['bookings'])
-        self.assertEqual(len(dashboard.data['bookings']), expected_count)
+        self.assertEqual(dashboard.data['count'], expected_count)
+        self.assertEqual(sum(len(s['bookings']) for s in dashboard.data['ships']), 50)
         for source in [self.seed_data['bookings'][0], self.seed_data['bookings'][3000]]:
             with self.subTest(source=source):
-                matching = [b for b in dashboard.data['bookings'] if all(
+                dashboard = self.client.get('/api/dashboard', {
+                    'ship_id': source['shipId'], 'date': source['startTime'][:10]})
+                matching = [b for b in dashboard.data['ships'][0]['bookings'] if all(
                     b[key] == value for key, value in source.items())]
                 self.assertEqual(len(matching), 1)
                 slots = self.client.get('/api/bookings/unavailable', {
@@ -230,6 +237,126 @@ class ImportedSeedTests(TestCase):
         }
         self.assertEqual(self.client.post('/api/bookings', after, format='json').status_code, 201)
         self.assertEqual(Booking.objects.count(), len(self.seed_data['bookings']) + 2)
+
+
+class BookingQueryTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.ship = Ship.objects.create(name='Nostromo')
+        cls.other = Ship.objects.create(name='Serenity')
+        start = datetime.fromisoformat('2026-09-21T21:00:00-05:00')
+        # Equal timestamps deliberately exercise stable pagination at ties.
+        Booking.objects.bulk_create([
+            Booking(ship=cls.ship if i % 2 else cls.other, pilot_name=f'Pilot {i}',
+                    start_time=start, end_time=start + timedelta(minutes=30))
+            for i in range(125)
+        ])
+
+    def rows(self, response, endpoint):
+        if endpoint == 'dashboard':
+            return [b for ship in response.data['ships'] for b in ship['bookings']]
+        return response.data['bookings']
+
+    def test_pages_are_bounded_in_sql_and_have_no_n_plus_one_queries(self):
+        expected = set(Booking.objects.values_list('id', flat=True))
+        for endpoint in ['bookings', 'dashboard']:
+            seen = set()
+            for page, size in [(1, 50), (2, 50), (3, 25)]:
+                with self.subTest(endpoint=endpoint, page=page):
+                    with CaptureQueriesContext(connection) as queries:
+                        response = self.client.get(f'/api/{endpoint}', {'page': page})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(len(queries), 2)
+                    self.assertIn('COUNT(', queries[0]['sql'])
+                    self.assertIn(f'LIMIT {size}', queries[1]['sql'])
+                    if page > 1:
+                        self.assertIn(f'OFFSET {(page - 1) * 50}', queries[1]['sql'])
+                    rows = self.rows(response, endpoint)
+                    ids = {b['id'] for b in rows}
+                    self.assertEqual(len(rows), size)
+                    self.assertFalse(seen & ids)
+                    seen.update(ids)
+                    self.assertEqual(response.data['count'], 125)
+                    self.assertEqual(response.data['totalPages'], 3)
+                    self.assertEqual(bool(response.data['next']), page < 3)
+                    self.assertEqual(bool(response.data['previous']), page > 1)
+            self.assertEqual(seen, expected)
+
+    def test_filters_run_in_sql_and_links_preserve_them(self):
+        for endpoint in ['bookings', 'dashboard']:
+            with self.subTest(endpoint=endpoint):
+                with CaptureQueriesContext(connection) as queries:
+                    response = self.client.get(f'/api/{endpoint}', {
+                        'ship_id': self.ship.pk, 'date': '2026-09-21', 'page_size': 10})
+                self.assertEqual(response.data['count'], 62)
+                self.assertEqual(len(self.rows(response, endpoint)), 10)
+                self.assertTrue(all(b['shipId'] == self.ship.pk
+                                    for b in self.rows(response, endpoint)))
+                self.assertIn('WHERE', queries[1]['sql'])
+                self.assertIn('"start_time" >=', queries[1]['sql'])
+                self.assertIn('"start_time" <', queries[1]['sql'])
+                self.assertNotIn('django_datetime_cast_date', queries[1]['sql'])
+                self.assertIn(f'ship_id={self.ship.pk}', response.data['next'])
+                self.assertIn('date=2026-09-21', response.data['next'])
+                self.assertIn('page_size=10', response.data['next'])
+
+    def test_invalid_filters_and_page_limits(self):
+        for endpoint in ['bookings', 'dashboard']:
+            for params in [
+                {'page': 0}, {'page': -1}, {'page': 'bad'},
+                {'page_size': 0}, {'page_size': 101}, {'page_size': 'bad'},
+                {'ship_id': 0}, {'ship_id': 'bad'},
+                {'date': '2026-02-30'}, {'date': 'bad'}, {'date': '9999-12-31'},
+            ]:
+                with self.subTest(endpoint=endpoint, params=params):
+                    self.assertEqual(self.client.get(f'/api/{endpoint}', params).status_code, 400)
+            self.assertEqual(self.client.get(f'/api/{endpoint}', {'page': 4}).status_code, 404)
+            response = self.client.get(f'/api/{endpoint}', {'page_size': 100})
+            self.assertEqual(len(self.rows(response, endpoint)), 100)
+
+    def test_empty_filters_return_empty_page(self):
+        for endpoint in ['bookings', 'dashboard']:
+            for params in [{'ship_id': 999999}, {'date': '2026-09-22'}]:
+                response = self.client.get(f'/api/{endpoint}', params)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data['count'], 0)
+                self.assertEqual(self.rows(response, endpoint), [])
+                self.assertIsNone(response.data['next'])
+                self.assertIsNone(response.data['previous'])
+
+    def test_date_filters_use_central_midnights_across_dst(self):
+        from .serializers import CENTRAL
+        for day in [date(2026, 3, 8), date(2026, 11, 1)]:
+            start = datetime.combine(day, datetime.min.time(), tzinfo=CENTRAL)
+            end = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=CENTRAL)
+            Booking.objects.all().delete()
+            records = [Booking.objects.create(
+                ship=self.ship, pilot_name=str(i), start_time=instant,
+                end_time=instant + timedelta(minutes=1),
+            ) for i, instant in enumerate([
+                start - timedelta(minutes=1), start, end - timedelta(minutes=1), end,
+            ])]
+            for endpoint in ['bookings', 'dashboard']:
+                response = self.client.get(f'/api/{endpoint}', {'date': day.isoformat()})
+                self.assertEqual([b['id'] for b in self.rows(response, endpoint)],
+                                 [records[1].pk, records[2].pk])
+
+    def test_availability_projects_only_selected_day_and_ship_in_sql(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/bookings/unavailable', {
+                'ship_id': self.ship.pk, 'date': '2026-09-21'})
+        self.assertEqual(len(queries), 2)
+        sql = queries[1]['sql']
+        self.assertIn('WHERE', sql)
+        self.assertIn('"end_time" >', sql)
+        self.assertIn('"start_time" <', sql)
+        projection = sql.split(' FROM ')[0]
+        self.assertNotIn('"ship_id"', projection)
+        # A daily schedule is complete, even if it exceeds the list page size.
+        self.assertEqual(len(response.data['schedule']), 62)
+        self.assertEqual(response.data['unavailableSlots'], [{
+            'start': '2026-09-21T21:00:00-05:00', 'end': '2026-09-21T22:00:00-05:00',
+        }])
 
 
 class ConcurrentBookingTests(TransactionTestCase):

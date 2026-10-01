@@ -19,7 +19,11 @@ class Booking(models.Model):
 
     class Meta:
         ordering = ['start_time', 'id']
-        indexes = [models.Index(fields=['ship', 'start_time', 'end_time'], name='booking_ship_times')]
+        indexes = [
+            models.Index(fields=['ship', 'start_time', 'id'], name='booking_ship_start_id'),
+            models.Index(fields=['start_time', 'id'], name='booking_start_id'),
+            models.Index(fields=['ship', 'end_time', 'start_time'], name='booking_ship_end_start'),
+        ]
         constraints = [models.CheckConstraint(
             condition=models.Q(end_time__gt=models.F('start_time')),
             name='booking_positive_duration',

@@ -107,8 +107,14 @@ The browser backend uses the repository's `.venv`. Create that environment befor
 | `GET /api/ships` | Return fleet IDs and names |
 | `GET /api/bookings/unavailable?ship_id=1&date=2026-09-21` | Return the Central operating window, merged unavailable ranges, and flight/refueling schedule entries |
 | `POST /api/bookings` | Validate and create a booking |
-| `GET /api/dashboard` | Return ships and all chronological bookings |
-| `GET /api/bookings` | Return the same fleet and booking dataset |
+| `GET /api/dashboard` | Return a chronological booking page grouped by ship on the backend |
+| `GET /api/bookings` | Return a flat chronological booking page |
+
+Both list endpoints accept optional `ship_id`, `date` (Central `YYYY-MM-DD`), `page` (default 1), and `page_size` (default 50, maximum 100). Django applies ship/date filters before counting and fetching the page with SQL `LIMIT/OFFSET`. Date bounds use consecutive Central midnights, including daylight-saving transitions, without casting indexed database columns. Invalid filters and page sizes return 400; an out-of-range page returns 404. An unmatched filter returns an empty first page.
+
+Both responses include `count`, `page`, `pageSize`, `totalPages`, `next`, and `previous`. The flat endpoint adds `bookings`; the dashboard adds `ships`, each containing `id`, `name`, and that ship's `bookings` on the current page. Only ships represented on the page appear in the dashboard response. For example, `/api/dashboard?ship_id=1&date=2026-09-21&page_size=25&page=1` returns at most 25 matching bookings. The fleet UI resets to page 1 when a filter changes.
+
+Availability is intentionally a complete single-ship, single-day response: pagination must never hide blocked time. Django queries only overlapping records and selects only the fields needed for the schedule. The frontend renders the server's unavailable intervals directly. `/api/ships` remains the small ID/name catalog needed by spacecraft selectors.
 
 Example booking request:
 
@@ -137,4 +143,4 @@ The local settings use debug mode, a development secret, and localhost-only host
 
 If the frontend cannot reach Django, confirm that Django is running on port 8000 and Vite on 5173. Non-JSON proxy failures appear as a readable connection error in the UI. If a selected date appears empty after import, use Fleet manager and “Open schedule” to navigate to a seeded ship/date; an empty current date does not imply that import failed.
 
-The dashboard intentionally loads the complete local fixture. Server-side filtering and pagination would be appropriate for a larger dataset. SQLite serializes writers for this MVP; a higher-write deployment should revisit the database and concurrency strategy.
+The dashboard filters and paginates on the server, and joins ship names in the page query to avoid per-booking lookups. Indexes support chronological pages, ship/date pages, and conflict interval searches. Page-number pagination still counts matching rows and skips preceding rows for deep pages; very large datasets may eventually need cursor pagination. SQLite serializes writers for this MVP; a higher-write deployment should revisit the database and concurrency strategy.

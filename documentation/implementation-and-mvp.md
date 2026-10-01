@@ -1,6 +1,6 @@
 # Implementation walkthrough and MVP status
 
-Updated September 30, 2026 after the recruiter-specific fixes. This describes the current implementation and records what was already complete, what was finished, and what remains for handoff.
+Updated October 1, 2026 after the backend filtering and pagination audit. This describes the current implementation and records what was already complete, what was finished, and what remains for handoff.
 
 The booking screen now shows each flight followed by its refueling interval, with no leading buffer. Seeded bookings in either year can be opened directly from the dashboard. Both backend and browser regression tests exercise imported records rather than only newly created bookings. See the [README](../README.md) for setup commands and the [verification record](verification.md) for the checks run during this pass.
 
@@ -34,7 +34,7 @@ The repository holds the browser application and Python backend together. React 
 flowchart LR
     U[React charter screen] -->|ship and Central date| A[Availability endpoint]
     U -->|booking request| V[Transactional validation and save]
-    F[Fleet dashboard] -->|all bookings| D[Dashboard endpoint]
+    F[Fleet dashboard] -->|ship/date filters and page| D[Dashboard endpoint]
     F -->|selected ship and date| U
     A --> DB[(SQLite)]
     V --> DB
@@ -149,7 +149,7 @@ These are distinct from the source folders above. Some appear only after setup o
 
 Ship has an ID and name. Booking has an ID, ship foreign key, pilot name, start time, and end time. Database fields use snake_case; the API exposes shipId, pilotName, startTime, and endTime.
 
-The API requires an existing ship and a nonblank pilot name of at most 255 characters. The database additionally checks that the end follows the start. A compound index on ship, start time, and end time narrows conflict queries. That index is not an overlap constraint and does not guarantee logarithmic cost for every interval query.
+The API requires an existing ship and a nonblank pilot name of at most 255 characters. The database additionally checks that the end follows the start. Indexes on start time/ID and ship/start time/ID support stable chronological pages and indexed date bounds. A ship/end time/start time index supports conflict interval searches. These indexes are not overlap constraints and do not guarantee logarithmic cost for every interval query.
 
 Django stores aware timestamps in UTC and interprets the rules in Central Time. Refueling is derived from flight end times, not stored as another booking. The SQLite file persists across application restarts. The default local file is db.sqlite3; SPACEPORT_DB can select another database.
 
@@ -168,11 +168,11 @@ The schedule shows merged unavailable windows, followed by individual flights wi
 
 ### Fleet dashboard and seeded-date navigation
 
-The dashboard retrieves ships and all bookings in two database queries. Bookings are chronologically ordered, and React groups them by ship. The optional date filter uses Central dates, including flights whose UTC timestamp falls on the next day.
+The dashboard filters and paginates bookings in Django. One query counts matches; a second retrieves only the requested page with joined ship names. Django groups that bounded page by ship before returning it. The optional date filter uses indexed timestamp bounds at Central midnights, including flights whose UTC timestamp falls on the next day and daylight-saving transitions. Pages are ordered by start time and ID, with 50 records by default and a maximum of 100.
 
 Each row has an “Open schedule” button. It sets the selected ship and Central date, opens the charter screen, and fetches that day's dedicated availability endpoint. It does not calculate availability from dashboard history. Both historical and future seeded schedules are reachable this way.
 
-Loading the complete local fixture keeps this assessment implementation simple. A larger dataset would benefit from server-side filtering and pagination. The dashboard supports refresh, and reopening it fetches current data.
+The dashboard provides spacecraft/date filters and previous/next page controls. Changing either filter resets to page 1. React renders the backend groups directly without filtering booking history. The dashboard supports refresh, and reopening it fetches the current page again.
 
 ### API contract
 
@@ -181,8 +181,10 @@ Loading the complete local fixture keeps this assessment implementation simple. 
 | GET /api/ships | Fleet IDs and names |
 | GET /api/bookings/unavailable?ship_id=1&date=2025-09-30 | Operating window, computed unavailable ranges, and flight/refueling entries |
 | POST /api/bookings | Validate and save a booking; return the saved record |
-| GET /api/dashboard | Ships and all bookings |
-| GET /api/bookings | Same fleet/booking dataset |
+| GET /api/dashboard | Filtered booking page grouped by ship, with pagination metadata |
+| GET /api/bookings | Filtered flat booking page, with pagination metadata |
+
+Both list endpoints accept ship_id, date, page, and page_size. See the [API reference](development-guide.md#api-reference) for response fields and limits. Availability remains a complete selected-day response and never relies on a booking-list page.
 
 Availability returns date, shipId, opensAt, closesAt, unavailableSlots, and schedule. Each schedule entry includes bookingId, pilotName, start, end, and a refueling object with start/end timestamps. Refueling is null when none of it falls inside the operating day, such as a flight returning at 22:00.
 
@@ -274,7 +276,7 @@ Dashboard rows open their ship/date on the charter screen. Empty days link to th
 
 ### Step 4 — Add repeatable browser tests: implemented
 
-The repository includes two Playwright scenarios. Their backend launcher creates a temporary database, migrates, and imports a deterministic generated fixture. Tests use separate ports and refuse existing servers, so they cannot silently operate on the user's working app.
+The repository includes four Playwright scenarios. Their backend launcher creates a temporary database, migrates, and imports a deterministic generated fixture. Tests use separate ports and refuse existing servers, so they cannot silently operate on the user's working app. The added scenarios verify backend pagination/filter requests and direct rendering of backend unavailable windows.
 
 They cover imported schedule visibility, conflict rejection, both exact-gap insertions, refresh after creation, persistence after page reload, dashboard links into both years, Tokyo timezone, and mobile overflow. This replaces the earlier temporary smoke script. Browser binaries must be installed separately or an installed Chrome executable supplied.
 
@@ -302,7 +304,7 @@ Practice walking from the form to availability, validation, transaction, and sav
 | Lost success response | There is no idempotency key; check the dashboard before assuming nothing was saved |
 | Local browser controls | They improve usability but are not the scheduling authority |
 | SQLite configuration | New write paths or a database replacement must preserve/revisit concurrency guarantees |
-| Full-history dashboard | Suitable for the tested fixture; larger deployments need pagination and filtering |
+| Deep numbered pages | SQL filters and limits bound returned rows; counts and large offsets still cost work on very large datasets |
 | Local configuration | Debug mode, development secret, and local hosts are for evaluation, not deployment |
 | Optional web fonts | Offline environments use fallback fonts |
 | Runtime setup | Use supported Python and Node versions; temporary tool paths from earlier sessions are not setup requirements |
@@ -310,6 +312,6 @@ Practice walking from the form to availability, validation, transaction, and sav
 
 ## 5. After MVP
 
-Authentication is explicitly excluded by the prompt. Editing, cancellations, notifications, recurring bookings, payments, and ship administration are outside scope. Production deployment settings, hosted CI, import hardening, pagination, and a database strategy for more concurrent writers are follow-up work.
+Authentication is explicitly excluded by the prompt. Editing, cancellations, notifications, recurring bookings, payments, and ship administration are outside scope. Production deployment settings, hosted CI, import hardening, cursor pagination for very large datasets, and a database strategy for more concurrent writers are follow-up work.
 
 The assessment asks for a focused working submission and code the candidate can explain. The remaining handoff is a user usability review, an accurate commit/public repository submission, and interview preparation; the recruiter-specific implementation gaps are addressed.

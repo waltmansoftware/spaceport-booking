@@ -5,6 +5,7 @@ from rest_framework import serializers, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Booking, Ship
+from .queries import booking_page
 from .serializers import BUFFER, CENTRAL, BookingSerializer, ShipSerializer, operating_window
 
 
@@ -23,21 +24,22 @@ def get_unavailable_slots(request):
             raise ValueError
     except (ValueError, TypeError):
         raise serializers.ValidationError('Provide a positive ship_id and a date in YYYY-MM-DD format.')
-    ship = get_object_or_404(Ship, pk=ship_id)
+    ship = get_object_or_404(Ship.objects.only('id'), pk=ship_id)
     opening, closing = operating_window(day)
     bookings = Booking.objects.filter(
-        ship=ship, end_time__gt=opening - BUFFER, start_time__lt=closing)
+        ship_id=ship_id, end_time__gt=opening - BUFFER, start_time__lt=closing,
+    ).values('id', 'pilot_name', 'start_time', 'end_time').order_by('start_time', 'id')
     merged = []
     schedule = []
     for booking in bookings:
-        flight_start = booking.start_time.astimezone(CENTRAL)
-        flight_end = booking.end_time.astimezone(CENTRAL)
+        flight_start = booking['start_time'].astimezone(CENTRAL)
+        flight_end = booking['end_time'].astimezone(CENTRAL)
         # Occupancy starts at departure; only the trailing refueling blocks time.
         start = max(opening, flight_start)
         end = min(closing, flight_end + BUFFER)
         refuel_start = max(opening, flight_end)
         schedule.append({
-            'bookingId': booking.id, 'pilotName': booking.pilot_name,
+            'bookingId': booking['id'], 'pilotName': booking['pilot_name'],
             'start': flight_start.isoformat(), 'end': flight_end.isoformat(),
             'refueling': {'start': refuel_start.isoformat(), 'end': end.isoformat()}
             if refuel_start < end else None,
@@ -57,9 +59,10 @@ def get_unavailable_slots(request):
 @api_view(['GET', 'POST'])
 def booking_handler(request):
     if request.method == 'GET':
+        paginator, bookings = booking_page(request)
         return Response({
-            'ships': ShipSerializer(Ship.objects.all(), many=True).data,
-            'bookings': BookingSerializer(Booking.objects.all(), many=True).data,
+            **paginator.metadata(),
+            'bookings': BookingSerializer(bookings, many=True).data,
         })
     try:
         # SQLite serializes writers before the conflict read, including across processes.
@@ -77,7 +80,15 @@ def booking_handler(request):
 
 @api_view(['GET'])
 def dashboard(request):
+    paginator, bookings = booking_page(request, with_ship=True)
+    # Group only the SQL-limited page; related ships arrive in the same query.
+    ships = {}
+    for booking, data in zip(bookings, BookingSerializer(bookings, many=True).data):
+        group = ships.setdefault(booking.ship_id, {
+            'id': booking.ship_id, 'name': booking.ship.name, 'bookings': [],
+        })
+        group['bookings'].append(data)
     return Response({
-        'ships': ShipSerializer(Ship.objects.all(), many=True).data,
-        'bookings': BookingSerializer(Booking.objects.all(), many=True).data,
+        **paginator.metadata(),
+        'ships': list(ships.values()),
     })
