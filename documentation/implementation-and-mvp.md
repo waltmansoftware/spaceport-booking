@@ -55,7 +55,78 @@ Vite serves the frontend during development and proxies `/api` requests to Djang
 
 The tested backend versions are pinned in [requirements.txt](../requirements.txt). Frontend dependencies are recorded in [package.json](../frontend/package.json) and resolved in the committed lockfile. The setup targets Python 3.12 and Node 22.12 or later in the Node 22 line.
 
-### File map
+### Folder and file map
+
+The repository contains the frontend and backend together. There is no separate `backend/` folder: `spaceport_project/` and `charter_app/` together form the Django backend. They run in the same server process, while `frontend/` contains the browser application and its build tooling.
+
+```text
+spaceport-booking/                Repository root; run Django commands here
+├── manage.py                     Django command-line entry point
+├── requirements.txt              Python dependencies
+├── seed.py                       Original seed JSON generator
+├── spaceport_project/            Configuration for the whole Django backend
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+├── charter_app/                  Ship-booking feature and business rules
+│   ├── models.py
+│   ├── serializers.py
+│   ├── views.py
+│   ├── urls.py
+│   ├── tests.py
+│   ├── migrations/               Versioned database schema changes
+│   │   └── 0001_initial.py
+│   └── management/               Django custom command package
+│       └── commands/             Discoverable command implementations
+│           └── load_seed.py
+├── frontend/                     React application and npm/Vite configuration
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── index.html
+│   ├── vite.config.js
+│   └── src/                      Frontend source code and helper tests
+│       ├── main.jsx
+│       ├── style.css
+│       ├── time.js
+│       └── time.test.js
+└── documentation/                Challenge rules, explanations, and MVP plan
+```
+
+This tree highlights source organization; it omits some small files such as `__init__.py` and runtime-version settings.
+
+#### What each folder means
+
+| Folder | Purpose | When you would work here |
+| --- | --- | --- |
+| Repository root (`spaceport-booking/`) | Holds shared setup instructions, Python dependency/runtime files, `manage.py`, and the supplied seed generator. It is also the default location of the local SQLite database. | Installing the backend, running Django commands, or changing project-wide documentation |
+| `spaceport_project/` | The Django **project** package: configures the backend as a whole, registers installed apps, sets database/timezone options, and connects the root URL routes. `wsgi.py` exposes the server application to a WSGI host. | Changing configuration, database connections, or top-level routing |
+| `charter_app/` | The Django **app** package: implements the ship-booking feature through models, validation, request handlers, and tests. It is registered in the project's `INSTALLED_APPS`. | Changing booking rules, API behavior, or the data model |
+| `charter_app/migrations/` | Contains executable, versioned instructions for creating or changing database tables. Django tracks which migrations have been applied to each database. These are committed source files, not copies of booking data. | After changing models: generate a migration with `makemigrations`, inspect it, and apply it with `migrate` |
+| `charter_app/management/` | The conventional package Django uses for an app's custom command organization. It does not implement the Fleet Manager screen. | Organizing backend command-line utilities |
+| `charter_app/management/commands/` | Contains the actual custom commands. Django discovers `load_seed.py` here and makes it available as `python manage.py load_seed`. The nested location is required by Django's command discovery convention. | Changing seed import behavior or adding another maintenance command |
+| `frontend/` | The frontend's own package root: npm dependencies, lockfile, HTML entry point, and Vite configuration live here. Run `npm ci`, `npm run dev`, and `npm run build` from this folder. | Managing frontend dependencies, build settings, or the development API proxy |
+| `frontend/src/` | Contains the JavaScript/JSX and CSS that implement the user interface. Both screens currently live in `main.jsx`; shared time helpers and their tests live alongside it. | Changing forms, schedule presentation, dashboard rendering, or browser time formatting |
+| `documentation/` | Contains the original assessment and explanatory Markdown. These files are for developers and reviewers; the application does not load them at runtime. | Updating requirements notes, implementation explanations, or the remaining-work plan |
+
+The **project/app distinction** is the reason for the two Python folders. `spaceport_project/` decides how Django is configured and which features it loads. `charter_app/` implements this application's feature. For example, a request to `/api/bookings` passes through the project URL configuration, then the app URL configuration, then the app's booking handler. Adding another feature later could mean adding another Django app under the same project, not starting another server.
+
+The `__init__.py` files mark the relevant directories as Python packages. They may be empty: their purpose here is package organization and discovery, not booking behavior. Folder names such as `spaceport_project` and `charter_app` are our choices, provided imports and configuration agree; the nested `management/commands/` layout is a Django convention.
+
+#### Generated and hidden folders
+
+These are distinct from the source folders above. Some appear only after setup or running the application.
+
+| Folder | Created or maintained by | How to treat it |
+| --- | --- | --- |
+| `.git/` | Git | Repository history and metadata; use Git commands rather than editing it manually |
+| `.venv/` | Python environment setup | Isolated Python runtime environment and installed backend packages; ignored by Git and recreated from setup instructions |
+| `frontend/node_modules/` | `npm ci` or `npm install` | Installed frontend dependencies; ignored by Git, not application source to edit |
+| `frontend/dist/` | `npm run build` | Generated deployable frontend files; ignored by Git. Edit `src/` and rebuild rather than editing this output |
+| `__pycache__/` inside Python folders | Python during execution | Compiled bytecode caches; ignored by Git and regenerated automatically |
+
+`db.sqlite3` and `seed.json` are **files**, not folders. The former contains local persisted records; the latter is generated input for the seed command. Both are ignored by Git. Removing the database loses local bookings unless you have a backup; regenerating/importing seed data is a reset, not recovery of user-created records. In contrast, `migrations/`, `requirements.txt`, and `frontend/package-lock.json` belong in version control so another developer can recreate the schema and install dependencies.
+
+#### Individual files
 
 | File | Responsibility |
 | --- | --- |
