@@ -1,5 +1,7 @@
 # Annual capacity and seed utilization
 
+> Archived analysis: this report describes the earlier 6,000-booking fixture. The active development seed now contains randomized history and a lightly booked seven-day future window.
+
 Calculated September 30, 2026 from the actual local combined `seed.json`. The file contains the supplied timing pattern followed by the aggressive pattern in consecutive 365-day periods. This analysis uses the assessment's fictional charter rules; real-world spacecraft travel times are not additional requirements.
 
 ## Capacity assumptions

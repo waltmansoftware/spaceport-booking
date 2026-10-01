@@ -1,11 +1,11 @@
-"""Generate two consecutive years of valid bookings.
+"""Generate randomized historical data plus one lightly booked future week.
 
     python seed.py > seed.json
-    python seed.py --today 2026-09-30 > seed.json
+    python seed.py --today 2026-10-01 --random-seed 42 > seed.json
 
-The first 365-day period reproduces the supplied generator's scheduling pattern.
-The second 365-day period uses the aggressive boundary-focused pattern. The
-anchor date is the first day of the aggressive period. Does not modify the DB.
+By default, each invocation uses fresh randomness. Supplying --random-seed makes
+the output reproducible for tests and troubleshooting. This command only emits
+JSON; importing it remains a separate operation.
 """
 import argparse
 import json
@@ -13,38 +13,24 @@ import random
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-# Keep the supplied fleet and pilot names without duplicating them.
 from seed_original import PILOTS, SHIPS
 
 CENTRAL = ZoneInfo('America/Chicago')
-PERIOD_DAYS = 365
-BOOKINGS_PER_SHIP = 600
-BOOKINGS_PER_DAY = 10
+HISTORY_DAYS = 365
+HISTORICAL_BOOKINGS_PER_SHIP = 600
+FUTURE_DAYS = 7
+MAX_FUTURE_BOOKINGS_PER_SHIP_DAY = 2
 REFUEL_BUFFER = timedelta(minutes=30)
 
 
-def aggressive_schedule_dates(period_start, rng):
-    """Choose 60 dense days throughout the second 365-day period."""
-    days = [period_start + timedelta(days=i) for i in range(PERIOD_DAYS)]
-    required = {days[0], days[1], days[-1]}
-    for day in days:
-        noon = datetime.combine(day, time(12), CENTRAL)
-        previous_noon = datetime.combine(day - timedelta(days=1), time(12), CENTRAL)
-        if noon.utcoffset() != previous_noon.utcoffset():
-            required.add(day)
-    count = BOOKINGS_PER_SHIP // BOOKINGS_PER_DAY
-    remaining = [day for day in days if day not in required]
-    return sorted(required | set(rng.sample(remaining, count - len(required))))
-
-
-def generate_supplied_bookings(ship_id, period_start, rng):
-    """Reproduce the supplied generator's timing inside the first period."""
+def generate_historical_bookings(ship_id, period_start, rng):
+    """Generate the supplied timing pattern over the previous year."""
     bookings = []
     cursor = None
     day = period_start
-    period_end = period_start + timedelta(days=PERIOD_DAYS)
+    period_end = period_start + timedelta(days=HISTORY_DAYS)
 
-    while len(bookings) < BOOKINGS_PER_SHIP and day < period_end:
+    while len(bookings) < HISTORICAL_BOOKINGS_PER_SHIP and day < period_end:
         opening = datetime.combine(day, time(6), CENTRAL)
         closing = datetime.combine(day, time(22), CENTRAL)
 
@@ -71,60 +57,61 @@ def generate_supplied_bookings(ship_id, period_start, rng):
         })
         cursor = end + REFUEL_BUFFER
 
-    if len(bookings) != BOOKINGS_PER_SHIP:
-        raise RuntimeError('Supplied pattern did not reach its booking quota within the first period.')
+    if len(bookings) != HISTORICAL_BOOKINGS_PER_SHIP:
+        raise RuntimeError('Historical pattern did not reach its booking quota.')
     return bookings
 
 
-def generate_aggressive_bookings(ship_id, days, rng):
-    """Generate ten tightly packed flights on every selected second-year day."""
+def generate_future_bookings(ship_id, today, rng):
+    """Generate one or two well-spaced flights on each of the next seven days."""
     bookings = []
-    for day in days:
-        cursor = datetime.combine(day, time(6), CENTRAL)
-        closing = datetime.combine(day, time(22), CENTRAL)
-        for index in range(BOOKINGS_PER_DAY):
-            # First pair is 06:00–07:00 and 07:30–08:30 on every selected day.
-            duration = 60 if index < 2 else rng.choice([30, 45, 60])
-            end = cursor + timedelta(minutes=duration)
-            if index == BOOKINGS_PER_DAY - 1:
-                end = closing
+    candidate_hours = [7, 10, 13, 16, 19]
+    for offset in range(1, FUTURE_DAYS + 1):
+        day = today + timedelta(days=offset)
+        count = rng.randint(1, MAX_FUTURE_BOOKINGS_PER_SHIP_DAY)
+        for hour in sorted(rng.sample(candidate_hours, count)):
+            start = datetime.combine(day, time(hour), CENTRAL)
+            end = start + timedelta(minutes=rng.choice([60, 90, 120]))
             bookings.append({
                 'shipId': ship_id,
                 'pilotName': rng.choice(PILOTS),
-                'startTime': cursor.isoformat(),
+                'startTime': start.isoformat(),
                 'endTime': end.isoformat(),
             })
-            # Refuel exactly once. Extra idle time can be zero; never add a
-            # second mandatory random delay before starting the next flight.
-            extra_idle = 0 if index == 0 else 1 if index == 1 else rng.choice([0, 0, 0, 1])
-            cursor = end + REFUEL_BUFFER + timedelta(minutes=extra_idle)
     return bookings
 
 
-def generate_seed(today):
-    supplied_rng = random.Random(42)
-    supplied_start = today - timedelta(days=PERIOD_DAYS)
-    supplied = [booking for ship in SHIPS for booking in generate_supplied_bookings(
-        ship['id'], supplied_start, supplied_rng)]
-
-    aggressive_rng = random.Random(43)
-    aggressive_days = aggressive_schedule_dates(today, aggressive_rng)
-    aggressive = [booking for ship in SHIPS for booking in generate_aggressive_bookings(
-        ship['id'], aggressive_days, aggressive_rng)]
-
-    return {
-        'ships': SHIPS,
-        # Keep the two source patterns consecutive in the JSON as well as time.
-        'bookings': supplied + aggressive,
-    }
+def generate_seed(today, random_seed=None):
+    rng = random.Random(random_seed)
+    historical_start = today - timedelta(days=HISTORY_DAYS)
+    historical = [
+        booking
+        for ship in SHIPS
+        for booking in generate_historical_bookings(ship['id'], historical_start, rng)
+    ]
+    future = [
+        booking
+        for ship in SHIPS
+        for booking in generate_future_bookings(ship['id'], today, rng)
+    ]
+    return {'ships': SHIPS, 'bookings': historical + future}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--today', type=date.fromisoformat, default=datetime.now(CENTRAL).date(),
-                        help='First day of the aggressive period, YYYY-MM-DD (default: today in Central).')
+    parser.add_argument(
+        '--today',
+        type=date.fromisoformat,
+        default=datetime.now(CENTRAL).date(),
+        help='Current Central date, YYYY-MM-DD (default: today).',
+    )
+    parser.add_argument(
+        '--random-seed',
+        type=int,
+        help='Optional deterministic random seed; omitted means fresh data each run.',
+    )
     args = parser.parse_args()
-    print(json.dumps(generate_seed(args.today), indent=2))
+    print(json.dumps(generate_seed(args.today, args.random_seed), indent=2))
 
 
 if __name__ == '__main__':

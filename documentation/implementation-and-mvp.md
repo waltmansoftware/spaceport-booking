@@ -15,7 +15,7 @@ The recruiter clarified that refueling extends only the end of a flight. They al
 | Runnable Django project and React screens | Complete | Retained |
 | Operating hours, offset validation, positive duration | Complete | Existing boundary tests retained |
 | Conflict checks and simultaneous requests | Complete | Transactional behavior retained; tested against imported records too |
-| Seed import, rollback, combined two-year generator | Complete | All 6,000 records used in integration and browser fixtures |
+| Seed import, rollback, randomized history and future-week generator | Complete | Complete fixture used in integration and browser tests |
 | Availability computation | Implemented, but incorrectly padded before flights | Fixed to departure through flight end plus 30 minutes |
 | Flight/refueling detail | Only merged unavailable ranges were shown | Backend now supplies individual flights, pilots, and refueling intervals |
 | Dashboard schedule navigation | Missing | Each booking opens its ship and Central date in the charter screen |
@@ -52,7 +52,7 @@ The repository contains the frontend and backend together. There is no separate 
 spaceport-booking/                Repository root; run Django commands here
 ├── manage.py                     Django command-line entry point
 ├── requirements.txt              Python dependencies
-├── seed.py                       Combined two-period seed JSON generator
+├── seed.py                       Randomized history and future-week seed generator
 ├── seed_original.py              Unmodified supplied generator
 ├── spaceport_project/            Configuration for the whole Django backend
 │   ├── settings.py
@@ -170,9 +170,9 @@ The schedule shows merged unavailable windows, followed by individual flights wi
 
 The dashboard retrieves ships and all bookings in two database queries. Bookings are chronologically ordered, and React groups them by ship. The optional date filter uses Central dates, including flights whose UTC timestamp falls on the next day.
 
-Each row has an “Open schedule” button. It sets the selected ship and Central date, opens the charter screen, and fetches that day's dedicated availability endpoint. It does not calculate availability from dashboard history. Both the original-pattern year and aggressive year are reachable this way.
+Each row has an “Open schedule” button. It sets the selected ship and Central date, opens the charter screen, and fetches that day's dedicated availability endpoint. It does not calculate availability from dashboard history. Both historical and future seeded schedules are reachable this way.
 
-Loading all 6,000 rows keeps this assessment implementation simple. A larger dataset would benefit from server-side filtering and pagination. The dashboard supports refresh, and reopening it fetches current data.
+Loading the complete local fixture keeps this assessment implementation simple. A larger dataset would benefit from server-side filtering and pagination. The dashboard supports refresh, and reopening it fetches current data.
 
 ### API contract
 
@@ -246,15 +246,13 @@ The database constraint enforces positive duration. Operating hours and conflict
 
 ### Seed generation and import
 
-The supplied generator is preserved as seed_original.py. The combined seed.py reproduces its timing pattern in the first 365-day period and uses the aggressive pattern in the following 365 days. Each pattern contributes 600 flights per ship, for 6,000 bookings across five ships.
+The supplied generator is preserved as seed_original.py. The active seed.py creates 600 randomized historical flights per ship using that timing pattern, then adds one or two well-spaced flights per ship per day for the next seven days. Default generation uses fresh randomness; `--random-seed` provides deterministic output for tests and troubleshooting.
 
-The supplied pattern has at least 60 minutes between flights because it adds idle time after refueling. The aggressive pattern uses exact 30- and 31-minute gaps and guarantees opening, closing, and DST-date coverage on its 60 selected dates. The anchor parameter names the first date of the aggressive period.
-
-For --today 2026-09-30, the periods are [2025-09-30, 2026-09-30) and [2026-09-30, 2027-09-30). Seed tests verify that the first pattern matches the preserved generator for that anchor, both periods satisfy the rules, and generation is deterministic.
+The development launcher imports a fresh seed every time it starts, intentionally replacing local bookings from the previous run. Seed tests verify operating hours, refueling gaps, historical bounds, seven-day future coverage, the two-flight future density cap, and deterministic generation when requested.
 
 The load_seed command reads JSON and replaces ships and bookings inside a transaction. Failure rolls back the replacement. It is a reset command for trusted fixture data, not a generally validated import API. Merely generating JSON does not reload the database.
 
-For an explicit demonstration on a freshly loaded fixture, open USS Wanderer's September 30, 2025 schedule. Booking #1 is 14:00–15:00, followed by refueling until 15:30. An overlapping request fails; 12:30–13:30 and 15:30–16:30 succeed. The aggressive period begins September 30, 2026 and includes 06:00 and 07:30 departures.
+For an explicit demonstration, start the development app and use Fleet manager to open any schedule in the next seven days. Each ship has only one or two seeded flights per day, leaving room to exercise valid and conflicting booking requests.
 
 See [annual capacity and utilization](../analysis/capacity-and-utilization.md) for the numerical comparison. Dense selected days do not imply higher annual utilization.
 
@@ -268,7 +266,7 @@ Acceptance: imported 14:00–15:00 flight displays 14:00–15:30, a preceding fl
 
 ### Step 2 — Test imported records: implemented
 
-Backend tests import the complete generated fixture using the real management command. They verify both periods in the dashboard and schedule and reject overlaps without adding records. Existing operating-hour, invalid-input, rollback, and concurrent-request cases remain.
+Backend tests import the complete generated fixture using the real management command. They verify historical and future data in the dashboard and schedule, reject past starts, and reject overlaps without adding records. Existing operating-hour, invalid-input, rollback, and concurrent-request cases remain.
 
 ### Step 3 — Make seeded schedules discoverable: implemented
 
@@ -276,7 +274,7 @@ Dashboard rows open their ship/date on the charter screen. Empty days link to th
 
 ### Step 4 — Add repeatable browser tests: implemented
 
-The repository includes two Playwright scenarios. Their backend launcher creates a temporary database, migrates, and imports all 6,000 records. Tests use separate ports and refuse existing servers, so they cannot silently operate on the user's working app.
+The repository includes two Playwright scenarios. Their backend launcher creates a temporary database, migrates, and imports a deterministic generated fixture. Tests use separate ports and refuse existing servers, so they cannot silently operate on the user's working app.
 
 They cover imported schedule visibility, conflict rejection, both exact-gap insertions, refresh after creation, persistence after page reload, dashboard links into both years, Tokyo timezone, and mobile overflow. This replaces the earlier temporary smoke script. Browser binaries must be installed separately or an installed Chrome executable supplied.
 
@@ -294,9 +292,9 @@ Practice walking from the form to availability, validation, transaction, and sav
 
 | Issue | Practical implication |
 | --- | --- |
-| A working DB may still contain older seeds | Generating JSON and running tests do not overwrite it; load_seed is a separate intentional reset |
+| Development data resets on startup | `dev.py` intentionally generates and imports a new randomized seed on every run |
 | Historical empty dates | They can be valid; use the fleet log and Open schedule to find seeded dates |
-| No future-only rule | Historical bookings are allowed because the prompt does not prohibit them |
+| Past booking attempts | Both the UI and API reject new bookings whose Central start instant has passed |
 | Final refueling after 22:00 | Allowed by the booking-hours interpretation; display is clipped to closing |
 | Strict boundary comparisons | Exactly 30 minutes succeeds; 29 minutes 59 seconds fails |
 | Trusted bulk import | It bypasses API scheduling validation; malformed imports are not a supported general user flow |

@@ -2,9 +2,10 @@ import json
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -20,6 +21,12 @@ def payload(ship, start='2026-09-21T12:00:00-05:00', end='2026-09-21T13:00:00-05
 
 class BookingTests(TestCase):
     def setUp(self):
+        self.clock = patch(
+            'charter_app.serializers.timezone.now',
+            return_value=datetime.fromisoformat('2025-12-31T00:00:00-06:00'),
+        )
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
         self.client = APIClient()
         self.ship = Ship.objects.create(name='Nostromo')
 
@@ -52,6 +59,23 @@ class BookingTests(TestCase):
             with self.subTest(start=start, end=end):
                 Booking.objects.all().delete()
                 self.assertEqual(self.post(startTime=start, endTime=end).status_code, expected)
+
+    def test_past_bookings_are_rejected(self):
+        with patch(
+            'charter_app.serializers.timezone.now',
+            return_value=datetime.fromisoformat('2026-09-21T10:00:00-05:00'),
+        ):
+            result = self.post(
+                startTime='2026-09-21T09:59:59-05:00',
+                endTime='2026-09-21T10:30:00-05:00',
+            )
+            self.assertEqual(result.status_code, 400)
+            self.assertIn('past', str(result.data).lower())
+            self.assertEqual(Booking.objects.count(), 0)
+            self.assertEqual(self.post(
+                startTime='2026-09-21T10:00:00-05:00',
+                endTime='2026-09-21T11:00:00-05:00',
+            ).status_code, 201)
 
     def test_overlap_and_refueling_in_both_directions(self):
         self.assertEqual(self.post().status_code, 201)
@@ -144,18 +168,25 @@ class ImportedSeedTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         from seed import generate_seed
-        cls.seed_data = generate_seed(date(2026, 9, 30))
+        cls.seed_data = generate_seed(date(2026, 9, 30), random_seed=42)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'seed.json'
             path.write_text(json.dumps(cls.seed_data))
             call_command('load_seed', str(path), stdout=StringIO())
 
     def setUp(self):
+        self.clock = patch(
+            'charter_app.serializers.timezone.now',
+            return_value=datetime.fromisoformat('2026-09-30T00:00:00-05:00'),
+        )
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
         self.client = APIClient()
 
-    def test_both_imported_years_are_visible_and_block_conflicts(self):
+    def test_imported_history_and_future_are_visible_and_block_conflicts(self):
         dashboard = self.client.get('/api/dashboard')
-        self.assertEqual(len(dashboard.data['bookings']), 6000)
+        expected_count = len(self.seed_data['bookings'])
+        self.assertEqual(len(dashboard.data['bookings']), expected_count)
         for source in [self.seed_data['bookings'][0], self.seed_data['bookings'][3000]]:
             with self.subTest(source=source):
                 matching = [b for b in dashboard.data['bookings'] if all(
@@ -168,26 +199,48 @@ class ImportedSeedTests(TestCase):
                 self.assertEqual(entry['pilotName'], source['pilotName'])
                 result = self.client.post('/api/bookings', source, format='json')
                 self.assertEqual(result.status_code, 400)
-                self.assertEqual(Booking.objects.count(), 6000)
+                self.assertEqual(Booking.objects.count(), expected_count)
 
     def test_insert_before_and_after_imported_flight_at_exact_buffer(self):
-        # The original first flight is 14:00–15:00 for this deterministic seed.
-        source = self.seed_data['bookings'][0]
-        self.assertEqual(source['startTime'], '2025-09-30T14:00:00-05:00')
-        before = {**source, 'startTime': '2025-09-30T12:30:00-05:00',
-                  'endTime': '2025-09-30T13:30:00-05:00'}
+        future = self.seed_data['bookings'][3000:]
+        counts = {}
+        for booking in future:
+            key = (booking['shipId'], booking['startTime'][:10])
+            counts[key] = counts.get(key, 0) + 1
+        source = next(booking for booking in future if counts[
+            (booking['shipId'], booking['startTime'][:10])
+        ] == 1 and 8 <= datetime.fromisoformat(booking['startTime']).hour <= 18)
+        source_start = datetime.fromisoformat(source['startTime'])
+        source_end = datetime.fromisoformat(source['endTime'])
+        before = {
+            **source,
+            'startTime': (source_start - timedelta(hours=1, minutes=30)).isoformat(),
+            'endTime': (source_start - timedelta(minutes=30)).isoformat(),
+        }
         result = self.client.post('/api/bookings', before, format='json')
         self.assertEqual(result.status_code, 201)
-        slots = self.client.get('/api/bookings/unavailable', {'ship_id': 1, 'date': '2025-09-30'})
+        slots = self.client.get('/api/bookings/unavailable', {
+            'ship_id': source['shipId'], 'date': source['startTime'][:10]})
         self.assertEqual(slots.data['unavailableSlots'][0]['start'], before['startTime'])
         self.assertIn(result.data['id'], [b['bookingId'] for b in slots.data['schedule']])
-        after = {**source, 'startTime': '2025-09-30T15:30:00-05:00',
-                 'endTime': '2025-09-30T16:30:00-05:00'}
+        after = {
+            **source,
+            'startTime': (source_end + timedelta(minutes=30)).isoformat(),
+            'endTime': (source_end + timedelta(hours=1, minutes=30)).isoformat(),
+        }
         self.assertEqual(self.client.post('/api/bookings', after, format='json').status_code, 201)
-        self.assertEqual(Booking.objects.count(), 6002)
+        self.assertEqual(Booking.objects.count(), len(self.seed_data['bookings']) + 2)
 
 
 class ConcurrentBookingTests(TransactionTestCase):
+    def setUp(self):
+        self.clock = patch(
+            'charter_app.serializers.timezone.now',
+            return_value=datetime.fromisoformat('2025-12-31T00:00:00-06:00'),
+        )
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+
     def test_simultaneous_requests_cannot_double_book(self):
         ship = Ship.objects.create(name='Rocinante')
         data = payload(ship)

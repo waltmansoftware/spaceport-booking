@@ -6,6 +6,8 @@ export const centralISO = (date, time) =>
   DateTime.fromISO(`${date}T${time}`, { zone: ZONE }).toISO();
 export const localDate = (iso) =>
   DateTime.fromISO(iso).setZone(ZONE).toISODate();
+export const isPast = (date, time, now = DateTime.now()) =>
+  DateTime.fromISO(`${date}T${time}`, { zone: ZONE }).toMillis() < now.toMillis();
 export const clock = (iso) =>
   DateTime.fromISO(iso).setZone(ZONE).toFormat("h:mm a");
 export const dayLabel = (iso) =>

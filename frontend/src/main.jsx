@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { centralISO, clock, dayLabel, localDate, today } from "./time";
+import { centralISO, clock, dayLabel, isPast, localDate, today } from "./time";
 import "./style.css";
 
 async function api(path, options = {}) {
@@ -106,6 +106,10 @@ function App() {
     setMessage("");
     if (end <= start) {
       setError("End time must be after start time.");
+      return;
+    }
+    if (isPast(date, start)) {
+      setError("Bookings cannot start in the past.");
       return;
     }
     setBusy(true);
@@ -249,6 +253,7 @@ function App() {
                     Departure date <span className="hint">Central Time</span>
                     <input
                       type="date"
+                      min={today()}
                       value={date}
                       onChange={(e) => {
                         setDate(e.target.value);

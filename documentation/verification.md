@@ -1,10 +1,10 @@
 # MVP verification record
 
-Verified September 30, 2026. This records local evidence, not a claim of production deployment or exhaustive coverage.
+Originally verified September 30, 2026 and updated October 1, 2026. This records local evidence, not a claim of production deployment or exhaustive coverage.
 
 ## Audit before changes
 
-Already implemented: a runnable Django/React application, operating-hour checks, offset-aware timestamps, transactional conflict validation, separate-connection concurrency tests, seed replacement/rollback, and the combined 6,000-booking generator.
+The initial audit found a runnable Django/React application, operating-hour checks, offset-aware timestamps, transactional conflict validation, separate-connection concurrency tests, seed replacement/rollback, and the then-current combined 6,000-booking generator.
 
 Partially implemented: availability was calculated on the backend but included an incorrect leading buffer; existing tests expected that behavior. Seed import and request validation were tested separately, without proving the imported records blocked new requests. Browser checks existed only as temporary tooling.
 
@@ -16,12 +16,12 @@ Missing: dashboard links to selected ship/date schedules, individual flight/refu
 | --- | --- |
 | Django system checks | Passed |
 | Migration consistency | No missing migrations |
-| Python suite | 17 tests passed: 11 backend/API tests and 6 seed/utilization tests |
-| JavaScript time helpers | 2 tests passed |
+| Python suite | 24 tests passed: 18 backend/API tests and 6 seed/utilization tests |
+| JavaScript time helpers | 3 tests passed |
 | Production frontend build | Passed |
 | Playwright browser suite | 2 scenarios passed in both working checkout and clean rehearsal copy |
-| Seed import | 5 ships and all 6,000 bookings imported into fresh databases |
-| Server restart persistence | 6,000 seeds plus a newly created exact-gap booking remained after restarting the rehearsal server |
+| Seed import | 5 ships, randomized history, and a lightly booked future week imported into fresh databases |
+| Development restart | Fresh randomized data replaces local ships and bookings on every `dev.py` launch |
 | Diff whitespace check | Passed |
 
 The environment used Python 3.12, Node 22, the pinned Python requirements, and npm's frontend lockfile. Browser checks used installed Google Chrome through the documented SPACEPORT_CHROME override; downloaded Chromium and other browsers were not independently tested. The old project virtual environment depended on an expired temporary Python installation, so it was rebuilt using a locally installed Python under the Git-ignored .tools directory. Standard Python 3.12 setup in the README remains the supported reproduction path.
@@ -34,7 +34,7 @@ The environment used Python 3.12, Node 22, the pinned Python requirements, and n
 - A preceding flight ending at 13:31 fails; one ending at 13:30 succeeds.
 - A following flight starting at 15:30 succeeds. Both newly created flights immediately appear in the schedule.
 - Simultaneous conflicting API requests produce exactly one successful booking.
-- Dashboard rows open the correct ship and Central date, including the historical first period and aggressive second period.
+- Dashboard rows open the correct ship and Central date for historical and future schedules.
 - The charter screen loads unavailable windows from its dedicated endpoint; it does not retrieve full history to calculate them.
 - Schedule behavior is checked in a Tokyo browser timezone and at a 390-pixel-wide viewport.
 - Empty dates provide a route to browse booked dates.

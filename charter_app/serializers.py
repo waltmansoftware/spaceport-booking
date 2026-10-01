@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 from rest_framework import serializers
 from .models import Booking, Ship
 
@@ -44,6 +45,8 @@ class BookingSerializer(serializers.ModelSerializer):
     def validate(self, data):
         start = data['start_time'].astimezone(CENTRAL)
         end = data['end_time'].astimezone(CENTRAL)
+        if start < timezone.now():
+            raise serializers.ValidationError('Bookings cannot start in the past.')
         opening, closing = operating_window(start.date())
         if not opening <= start < end <= closing:
             raise serializers.ValidationError(

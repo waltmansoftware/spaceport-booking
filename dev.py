@@ -120,27 +120,13 @@ def prepare_environment():
 
     print("Preparing database...", flush=True)
     subprocess.run([str(VENV_PYTHON), "manage.py", "migrate", "--noinput"], cwd=ROOT, check=True)
-    ships = subprocess.run(
-        [
-            str(VENV_PYTHON),
-            "manage.py",
-            "shell",
-            "-c",
-            "from charter_app.models import Ship; print(int(Ship.objects.exists()))",
-        ],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if ships.stdout.strip().splitlines()[-1] == "0":
-        tools = ROOT / ".tools"
-        tools.mkdir(exist_ok=True)
-        seed_path = tools / "local-seed.json"
-        print("Loading starter fleet and bookings...", flush=True)
-        with seed_path.open("w", encoding="utf-8") as seed_file:
-            subprocess.run([str(VENV_PYTHON), "seed.py"], cwd=ROOT, check=True, stdout=seed_file, text=True)
-        subprocess.run([str(VENV_PYTHON), "manage.py", "load_seed", str(seed_path)], cwd=ROOT, check=True)
+    tools = ROOT / ".tools"
+    tools.mkdir(exist_ok=True)
+    seed_path = tools / "local-seed.json"
+    print("Replacing local data with a fresh randomized seed...", flush=True)
+    with seed_path.open("w", encoding="utf-8") as seed_file:
+        subprocess.run([str(VENV_PYTHON), "seed.py"], cwd=ROOT, check=True, stdout=seed_file, text=True)
+    subprocess.run([str(VENV_PYTHON), "manage.py", "load_seed", str(seed_path)], cwd=ROOT, check=True)
     return npm
 
 
@@ -178,7 +164,6 @@ def require_available_ports():
 
 
 def run_servers(npm):
-    require_available_ports()
     process_options = {}
     if os.name == "nt":
         process_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -241,6 +226,7 @@ def run_servers(npm):
 def main():
     os.chdir(ROOT)
     try:
+        require_available_ports()
         npm = prepare_environment()
         return run_servers(npm)
     except (RuntimeError, subprocess.CalledProcessError) as error:

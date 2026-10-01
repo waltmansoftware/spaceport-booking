@@ -14,7 +14,7 @@ python3 dev.py
 py -3.12 dev.py
 ```
 
-This creates `.venv` when needed, installs Python and Node dependencies, runs migrations, seeds an empty database, and starts Django and Vite together. It preserves existing bookings on later runs. Open `http://127.0.0.1:5173`; Ctrl-C stops both servers.
+This creates `.venv` when needed, installs Python and Node dependencies, runs migrations, replaces local data with a fresh randomized seed, and starts Django and Vite together. **Every launch deletes local ships and bookings from the previous run.** Open `http://127.0.0.1:5173`; Ctrl-C stops both servers.
 
 VS Code users can press F5 or run the default build task with Ctrl+Shift+B (Cmd+Shift+B on macOS). Both invoke the same cross-platform `dev.py` launcher in a dedicated terminal. The checked-in task selects `py -3.12` on native Windows and `python3` on macOS or WSL.
 
@@ -39,18 +39,18 @@ Vite proxies `/api` to Django, so local development does not need a separate COR
 
 ## Seed data
 
-`python seed.py > seed.json` generates five ships and 6,000 valid bookings in two consecutive 365-day periods:
+`python seed.py > seed.json` generates five ships with:
 
-- The first period reproduces the supplied timing pattern with 600 bookings per ship.
-- The second period adds 600 aggressive bookings per ship across 60 selected dates. These include 06:00 departures, 22:00 returns, exact 30-minute gaps, 31-minute gaps, and Central daylight-saving transition dates.
+- 600 randomized historical bookings per ship from the previous year.
+- One or two bookings per ship per day from tomorrow through seven days from today.
 
-The default boundary is today's Central date: the supplied pattern occupies the previous period and the aggressive pattern begins today. For stable review data, set the boundary explicitly:
+No future ship-day receives more than two seeded flights, leaving substantial room for manual bookings. Normal generation uses fresh randomness. For reproducible data, set both the Central date and random seed:
 
 ```sh
-python seed.py --today 2026-09-30 > seed.json
+python seed.py --today 2026-10-01 --random-seed 42 > seed.json
 ```
 
-That produces periods `[2025-09-30, 2026-09-30)` and `[2026-09-30, 2027-09-30)`.
+That produces historical data before October 1 and light future schedules for October 2–8.
 
 The original generator is preserved byte-for-byte as `seed_original.py`. Running it directly produces its standalone 3,000-booking output:
 
@@ -60,7 +60,7 @@ python seed_original.py > seed.json
 
 Generating JSON does not change the database. `python manage.py load_seed [path]` deletes and replaces all local ships and bookings inside one transaction. A failed import rolls back, but a successful import intentionally removes user-created local bookings. The generated JSON and SQLite database are ignored by Git.
 
-For the fixed 2026-09-30 seed, open Fleet manager and filter to `2025-09-30`. Booking #1 is USS Wanderer from 14:00–15:00 with refueling through 15:30. On a freshly imported database, an identical request fails while 12:30–13:30 and 15:30–16:30 succeed. Filter to `2026-09-30` for the aggressive second-period schedule.
+The development launcher generates and imports a new seed on every run. Manual `load_seed` imports likewise replace all local ships and bookings atomically.
 
 ## Verification
 
@@ -81,9 +81,9 @@ npm test
 npm run build
 ```
 
-Backend tests cover operating boundaries, overnight rejection, overlaps, exact refueling gaps, timezone offsets, daylight-saving dates, malformed input, unavailable windows, seed rollback, and simultaneous requests through separate connections. They import all 6,000 records, find records from both periods in the dashboard and availability endpoint, and reject conflicts against imported data.
+Backend tests cover past-booking rejection, operating boundaries, overnight rejection, overlaps, exact refueling gaps, timezone offsets, daylight-saving dates, malformed input, unavailable windows, seed rollback, and simultaneous requests through separate connections. They import historical and future records, display both in the dashboard and availability endpoint, and reject conflicts against imported data.
 
-The seed tests prove that the first period matches the preserved generator, both periods remain valid, and aggressive records cover the intended boundaries. Frontend tests cover Central Time conversion and date grouping.
+The seed tests prove that history remains valid, the next seven days are covered, each future ship-day has at most two flights, and an explicit random seed is reproducible. Frontend tests cover Central Time conversion, date grouping, and past-time detection.
 
 ## Browser acceptance tests
 
@@ -94,9 +94,9 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The suite starts Django on port 8011 and Vite on 5174. It refuses to reuse existing servers, creates a temporary database, migrates it, and imports the fixed 6,000-booking fixture. It does not touch `db.sqlite3`.
+The suite starts Django on port 8011 and Vite on 5174. It refuses to reuse existing servers, creates a temporary database, migrates it, and imports a deterministic version of the randomized fixture. It does not touch `db.sqlite3`.
 
-The browser scenarios cover imported schedules, conflict rejection, exact gaps before and after an existing flight, schedule refresh after creation, persistence after page reload, dashboard links into both periods, a Tokyo browser timezone, and a narrow viewport.
+The browser scenarios cover future booking, conflict rejection, exact gaps before and after an existing flight, schedule refresh after creation, and dashboard links into both historical and future data in a narrow viewport and Tokyo browser timezone.
 
 The browser backend uses the repository's `.venv`. Create that environment before running the suite. On Windows, change the backend command in `frontend/playwright.config.js` to `.venv/Scripts/python.exe`. To use an installed Chrome instead of Playwright's Chromium download, set `SPACEPORT_CHROME` to the Chrome executable path.
 
@@ -137,4 +137,4 @@ The local settings use debug mode, a development secret, and localhost-only host
 
 If the frontend cannot reach Django, confirm that Django is running on port 8000 and Vite on 5173. Non-JSON proxy failures appear as a readable connection error in the UI. If a selected date appears empty after import, use Fleet manager and “Open schedule” to navigate to a seeded ship/date; an empty current date does not imply that import failed.
 
-The dashboard intentionally loads all 6,000 fixture bookings. Server-side filtering and pagination would be appropriate for a larger dataset. SQLite serializes writers for this MVP; a higher-write deployment should revisit the database and concurrency strategy.
+The dashboard intentionally loads the complete local fixture. Server-side filtering and pagination would be appropriate for a larger dataset. SQLite serializes writers for this MVP; a higher-write deployment should revisit the database and concurrency strategy.

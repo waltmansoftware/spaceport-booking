@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { centralISO, localDate, clock, dayLabel } from "./time.js";
+import { DateTime } from "luxon";
+import { centralISO, localDate, clock, dayLabel, isPast } from "./time.js";
 
 test("selected clock times use Central offsets throughout the year", () => {
   assert.equal(
@@ -24,4 +25,10 @@ test("dashboard groups UTC timestamps by their Central date", () => {
   assert.equal(localDate("2026-09-22T02:00:00Z"), "2026-09-21");
   assert.equal(clock("2026-09-22T02:00:00Z"), "9:00 PM");
   assert.equal(dayLabel("2026-09-21T12:00:00"), "Sep 21, 2026");
+});
+test("past checks compare the selected Central instant", () => {
+  const now = DateTime.fromISO("2026-10-01T12:00:00-05:00");
+  assert.equal(isPast("2026-10-01", "11:59", now), true);
+  assert.equal(isPast("2026-10-01", "12:00", now), false);
+  assert.equal(isPast("2026-10-02", "06:00", now), false);
 });

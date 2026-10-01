@@ -7,7 +7,7 @@ The application has two screens:
 - **Charter a ship:** select a spacecraft and Central Time date, inspect backend-calculated availability, and create a booking.
 - **Fleet manager:** browse bookings by ship and open any booking's daily schedule.
 
-Bookings must remain within 06:00–22:00 Central Time. Flights on the same ship cannot overlap and require 30 minutes of refueling after each flight.
+Bookings must start in the future and remain within 06:00–22:00 Central Time. Flights on the same ship cannot overlap and require 30 minutes of refueling after each flight.
 
 ## Run locally
 
@@ -25,9 +25,9 @@ python3 dev.py
 py -3.12 dev.py
 ```
 
-The script installs missing dependencies, prepares and seeds a new database, and starts both servers. Open **http://127.0.0.1:5173** and press Ctrl-C when you are done. Existing local data is preserved on later runs.
+The script installs missing dependencies, replaces local data with a fresh randomized seed, and starts both servers. Open **http://127.0.0.1:5173** and press Ctrl-C when you are done. **Every launch resets local ships and bookings**, including bookings created during the previous run.
 
-The seed import replaces local ships and bookings. See the [development guide](documentation/development-guide.md) before reloading an existing database.
+The seed includes historical sample data plus one or two bookings per ship per day for the next seven days. See the [development guide](documentation/development-guide.md) for deterministic seed generation and manual setup.
 
 ## Verify
 
@@ -37,6 +37,7 @@ python manage.py test
 python -m unittest analysis.test_seed analysis.test_seed_utilization
 
 # Frontend directory
+npm run typecheck
 npm test
 npm run build
 ```
@@ -51,7 +52,7 @@ The full browser-test setup and clean verification procedure are in the [develop
 | [Development guide](documentation/development-guide.md) | Seed data, API, test commands, browser setup, and local troubleshooting |
 | [Implementation and MVP status](documentation/implementation-and-mvp.md) | Architecture, booking math, file map, decisions, and remaining handoff |
 | [Verification record](documentation/verification.md) | Evidence from backend, frontend, browser, and clean-setup checks |
-| [Capacity analysis](analysis/capacity-and-utilization.md) | Annual capacity and utilization of both seed periods |
+| [Capacity analysis](analysis/capacity-and-utilization.md) | Archived analysis of the earlier two-period fixture |
 
 ## Scope
 
