@@ -61,3 +61,27 @@ The charter screen already used the dedicated availability endpoint. The audit f
 - SQLite query plans were inspected on a migrated copy of the local database. Date pages use `booking_start_id`, ship/date pages use `booking_ship_start_id` without a temporary sort, and conflict lookups use the covering `booking_ship_end_start` index. Availability selects only schedule fields and filters ship/overlapping times in SQL.
 
 These checks cover this checkout; the earlier clean-copy rehearsal was not repeated for this change. Numbered pagination still incurs matching-row counts and offset costs on deep pages.
+
+## Final requirements audit — October 1, 2026
+
+Reviewed application commit `3db6fd0` against the original challenge and the recruiter feedback recorded in the implementation walkthrough. No application requirement blockers were found.
+
+| Requirement | Evidence |
+| --- | --- |
+| React frontend, Python backend, persistent database, required fields, no authentication | Source review and fresh Django/SQLite setup |
+| Select a ship/date, see unavailable time, create a booking | Browser booking scenario and API tests |
+| Availability calculated by the backend | Dedicated endpoint tests and browser verification that charter requests never fetch booking history |
+| No overlaps and at least 30 minutes between flights | API boundary tests, imported-booking checks, concurrent requests, and browser tests for exact gaps |
+| Flights remain within 06:00–22:00 Central | Boundary and daylight-saving tests; browser scenarios run in the Tokyo timezone |
+| Seeded schedules and fleet bookings organized by ship | Historical/current/future schedule tests, dashboard navigation, server filtering and pagination |
+| Public GitHub repository | Anonymous GitHub API confirmed the repository is public and published main matches `3db6fd0` |
+
+The working checkout passed 25 Django tests, 6 seed/utilization tests, 3 JavaScript tests, system checks, migration consistency, frontend formatting, spelling, type checking, and the production build.
+
+A fresh temporary copy of tracked source installed Python dependencies from requirements.txt and frontend dependencies using npm ci. It applied all migrations, imported the original 3,000-booking fixture, then imported the current deterministic 3,065-booking fixture for October 1. All 34 backend, seed, and JavaScript tests passed again, along with type checking and the production build. All 4 browser scenarios passed in that copy using installed Chrome and the disposable browser database. The user's development database was not replaced.
+
+The first browser run exposed an intermittent test failure: an assertion matched both the booking confirmation and the availability-loading status. The browser test now selects the confirmation specifically. The successful booking and scheduling behavior were confirmed; this correction changes only the test. The changed test also passed its formatting and spelling checks.
+
+The [published commit's CI run](https://github.com/waltmansoftware/spaceport-booking/actions/runs/36822483225) completed successfully. CI covers the backend and frontend checks; the browser suite was run locally. The test correction and this audit record are local changes, not part of that published CI result.
+
+Assessment readiness is based on the documented requirements, not a guarantee of the interview outcome. Be ready to explain trailing refueling, candidate conflict checks, Central Time conversion, SQLite writer transactions, and the intentional data reset when dev.py starts. Other browsers and native Windows were not exercised in this audit.

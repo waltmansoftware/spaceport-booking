@@ -10,6 +10,9 @@ test("future booking, conflicts, and exact refueling gaps", async ({
 }) => {
   const errors = [];
   const charterRequests = [];
+  const confirmation = page
+    .getByRole("status")
+    .filter({ hasText: "confirmed" });
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (req) => charterRequests.push(req.url()));
   const bookingDate = centralDay(8); // The randomized fixture only seeds seven future days.
@@ -30,7 +33,7 @@ test("future booking, conflicts, and exact refueling gaps", async ({
   await page.getByLabel("Start time", { exact: true }).fill("14:00");
   await page.getByLabel("End time", { exact: true }).fill("15:00");
   await page.getByRole("button", { name: "Confirm charter" }).click();
-  await expect(page.getByRole("status")).toContainText("confirmed");
+  await expect(confirmation).toContainText("confirmed");
 
   // Inserting before an existing booking requires our own trailing refueling.
   await page.getByLabel("Start time", { exact: true }).fill("12:30");
@@ -39,12 +42,12 @@ test("future booking, conflicts, and exact refueling gaps", async ({
   await expect(page.getByRole("alert")).toContainText("unavailable");
   await page.getByLabel("End time", { exact: true }).fill("13:30");
   await page.getByRole("button", { name: "Confirm charter" }).click();
-  await expect(page.getByRole("status")).toContainText("confirmed");
+  await expect(confirmation).toContainText("confirmed");
 
   await page.getByLabel("Start time", { exact: true }).fill("15:30");
   await page.getByLabel("End time", { exact: true }).fill("16:30");
   await page.getByRole("button", { name: "Confirm charter" }).click();
-  await expect(page.getByRole("status")).toContainText("3:30 PM");
+  await expect(confirmation).toContainText("3:30 PM");
   await expect(page.getByRole("list", { name: "Day schedule" })).toContainText(
     "Browser acceptance pilot",
   );
