@@ -13,27 +13,19 @@ Bookings must remain within 06:00–22:00 Central Time. Flights on the same ship
 
 Requires Python 3.12+ and Node.js 22.12+.
 
-Start the backend from the repository root:
+In VS Code, press **F5** or **Ctrl+Shift+B** (**Cmd+Shift+B** on macOS). The task works on macOS, native Windows, and WSL.
+
+To start it from a terminal instead, run:
 
 ```sh
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python seed.py > seed.json
-python manage.py load_seed
-python manage.py runserver 127.0.0.1:8000
+# macOS or WSL
+python3 dev.py
+
+# Native Windows
+py -3.12 dev.py
 ```
 
-Start the frontend in a second terminal:
-
-```sh
-cd frontend
-npm ci
-npm run dev
-```
-
-Open **http://127.0.0.1:5173**.
+The script installs missing dependencies, prepares and seeds a new database, and starts both servers. Open **http://127.0.0.1:5173** and press Ctrl-C when you are done. Existing local data is preserved on later runs.
 
 The seed import replaces local ships and bookings. See the [development guide](documentation/development-guide.md) before reloading an existing database.
 

@@ -7,24 +7,35 @@ This guide contains the operational detail intentionally omitted from the root R
 Use Python 3.12 or later and Node.js 22.12 or later. SQLite is included with Python and creates `db.sqlite3` locally.
 
 ```sh
-python3.12 -m venv .venv
-source .venv/bin/activate
+# macOS or WSL
+python3 dev.py
+
+# Native Windows
+py -3.12 dev.py
+```
+
+This creates `.venv` when needed, installs Python and Node dependencies, runs migrations, seeds an empty database, and starts Django and Vite together. It preserves existing bookings on later runs. Open `http://127.0.0.1:5173`; Ctrl-C stops both servers.
+
+VS Code users can press F5 or run the default build task with Ctrl+Shift+B (Cmd+Shift+B on macOS). Both invoke the same cross-platform `dev.py` launcher in a dedicated terminal. The checked-in task selects `py -3.12` on native Windows and `python3` on macOS or WSL.
+
+On Windows, or when running the services separately, use the manual setup:
+
+```sh
+python -m venv .venv
+.venv\\Scripts\\activate
 pip install -r requirements.txt
 python manage.py migrate
 python seed.py > seed.json
 python manage.py load_seed
 python manage.py runserver 127.0.0.1:8000
-```
 
-On Windows, activate the environment with `.venv\\Scripts\\activate` and use the available Python launcher. In another terminal:
-
-```sh
+# In another terminal:
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Vite proxies `/api` to Django, so local development does not need a separate CORS configuration. `npm run preview` serves the production frontend build and uses the same proxy target.
+Vite proxies `/api` to Django, so local development does not need a separate CORS configuration. `npm run preview` serves the production frontend build and uses the same proxy target.
 
 ## Seed data
 

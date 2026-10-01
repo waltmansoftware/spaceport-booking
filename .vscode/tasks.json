@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Pacific Spaceport",
+      "type": "process",
+      "command": "python3",
+      "args": ["${workspaceFolder}/dev.py"],
+      "windows": {
+        "command": "py",
+        "args": ["-3.12", "${workspaceFolder}/dev.py"]
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

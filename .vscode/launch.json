@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Pacific Spaceport",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "python3 \"${workspaceFolder}/dev.py\"",
+      "cwd": "${workspaceFolder}",
+      "windows": {
+        "command": "py -3.12 \"${workspaceFolder}/dev.py\""
+      }
+    }
+  ]
+}
