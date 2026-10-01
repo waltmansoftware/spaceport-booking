@@ -20,7 +20,7 @@ The browser interprets date and time controls in America/Chicago using Luxon, ra
 
 The availability endpoint queries only intervals that could affect the selected ship's operating day. It expands each by the refueling buffer, clips to opening and closing, and merges overlapping or touching windows. The frontend displays that response without deriving availability from full booking history.
 
-The dashboard retrieves the challenge dataset in two queries (ships and bookings). React groups it by ship and can filter by Central date. This is intentionally simple for 3,000 bookings; larger data calls for backend pagination and filtering.
+The dashboard retrieves the challenge dataset in two queries (ships and bookings). React groups it by ship and can filter by Central date. This remains simple enough for the combined 6,000-booking fixture; larger data calls for backend pagination and filtering.
 
 ## Indexing and verification
 

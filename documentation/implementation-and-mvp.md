@@ -2,6 +2,8 @@
 
 Written September 22, 2026. This describes the implementation at commit `1d7bdec` and the recruiter feedback supplied afterward. It separates existing behavior from proposed changes; creating this document does not fix the remaining application gaps.
 
+**September 30 seed update:** the supplied generator is preserved unchanged as `seed_original.py`. The combined `seed.py` produces 6,000 valid bookings in two consecutive 365-day periods: 3,000 with the supplied timing pattern, followed by 3,000 with the aggressive pattern. The second period includes 30- and 31-minute gaps, 06:00 departures, 22:00 returns, and DST transition dates. `--today YYYY-MM-DD` sets the boundary and first aggressive date. The September 22 database observations below remain a historical snapshot; generating new JSON does not reload the database. See the README for current seed commands. The availability display correction described here is still separate pending work.
+
 **Current assessment:** the application runs locally and implements both requested screens, persistence, server-side availability, and protected booking creation. It should not yet be considered ready to submit against the recruiter's clarified expectations. The most important correction is the availability display's refueling buffer, followed by making seeded bookings easy to find and proving they block new bookings through an automated end-to-end test.
 
 ## 1. Requirements and recruiter feedback
@@ -63,7 +65,8 @@ The repository contains the frontend and backend together. There is no separate 
 spaceport-booking/                Repository root; run Django commands here
 ├── manage.py                     Django command-line entry point
 ├── requirements.txt              Python dependencies
-├── seed.py                       Original seed JSON generator
+├── seed.py                       Combined two-period seed JSON generator
+├── seed_original.py              Unmodified supplied generator
 ├── spaceport_project/            Configuration for the whole Django backend
 │   ├── settings.py
 │   ├── urls.py
@@ -89,6 +92,10 @@ spaceport-booking/                Repository root; run Django commands here
 │       ├── style.css
 │       ├── time.js
 │       └── time.test.js
+├── analysis/                     Seed validity and utilization investigations
+│   ├── test_seed.py
+│   ├── seed_utilization.py
+│   └── test_seed_utilization.py
 └── documentation/                Challenge rules, explanations, and MVP plan
 ```
 
@@ -220,7 +227,7 @@ This depends on the database configuration and the transaction boundary together
 
 ### Seed data: generation, import, and visibility
 
-The original [seed.py](../seed.py) remains unchanged. It starts one year before the generation date and generates up to 600 flights for each of five ships. Its random choices use a fixed seed, but calendar dates depend on the day it runs. Reaching the booking count can stop generation well before today; the generated records do not necessarily span a complete year.
+The original generator, now preserved as [seed_original.py](../seed_original.py), starts one year before the generation date and generates up to 600 flights for each of five ships. Its random choices use a fixed seed, but calendar dates depend on the day it runs. Reaching the booking count can stop generation well before today; its records do not necessarily span a complete year. The combined [seed.py](../seed.py) reproduces that pattern inside the first 365-day period, then places 600 aggressive bookings per ship across 60 dates in the immediately following period. This makes the source patterns consecutive without mixing or overlapping them. The following September 22 observations concern the earlier standalone original dataset.
 
 `load_seed` reads the JSON, deletes existing bookings and ships, and bulk inserts replacements inside one transaction. A failed import rolls back those mutations. This is a reset command for the supplied trusted data, not a general validated import API.
 
@@ -336,6 +343,8 @@ Practice explaining the request flow, end-only refueling math, why validation oc
 **Done when:** the submitted repository is the tested version, its instructions work, and the implementation's tradeoffs can be explained without relying on unsupported claims.
 
 ## 5. Gotchas and remaining limitations
+
+For the numerical capacity limits and both consecutive periods' occupancy, see [annual capacity and seed utilization](../analysis/capacity-and-utilization.md). The supporting scripts and tests are isolated in the top-level `analysis/` folder. The aggressive period stresses turnaround boundaries on selected days; it does not represent higher annual utilization.
 
 | Gotcha | Practical implication |
 | --- | --- |

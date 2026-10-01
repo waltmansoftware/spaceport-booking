@@ -8,6 +8,8 @@ A small React + Django application for chartering ships and reviewing the fleet'
 
 The original [challenge rules](documentation/rules.md) are preserved.
 
+See [annual capacity and seed utilization](analysis/capacity-and-utilization.md) for flight-count limits and a measured comparison of busy versus available time in the two consecutive seed periods. Supporting calculations and tests live in the [`analysis/`](analysis/) folder.
+
 See the [implementation walkthrough and ordered MVP plan](documentation/implementation-and-mvp.md) for the full explanation, recruiter feedback, and remaining acceptance checks. The recruiter's end-only refueling clarification exposes a pending correction: the current availability display adds a buffer before each flight as well as after it.
 
 ## Run locally
@@ -24,7 +26,11 @@ python manage.py load_seed
 python manage.py runserver 127.0.0.1:8000
 ```
 
-`load_seed [path]` replaces all ships and bookings in one transaction. Re-running it resets the data; a failed import rolls back the changes. The provided generator produces five ships and 3,000 bookings. Most seed bookings are historical, so an empty calendar on today's date is normal; use the dashboard to find dates with existing bookings.
+`load_seed [path]` replaces all ships and bookings in one transaction. Re-running it resets the data; a failed import rolls back the changes. The combined generator produces five ships and 6,000 valid bookings in two consecutive 365-day periods. With the default anchor, the supplied pattern occupies the previous period and the aggressive pattern begins today. `--today` names this boundary rather than merely changing a display date.
+
+The first period contains 600 bookings per ship generated with the supplied timing algorithm. The second contains another 600 per ship across 60 selected dates. Each aggressive day includes a 06:00 departure, a 22:00 return, and tightly packed flights separated by exactly 30 or 31 minutes. These exercise the refueling boundary that the supplied pattern's minimum 60-minute gaps missed. Flights ending at 22:00 assume refueling may finish after closing, as the stated hours constrain bookings.
+
+The supplied generator is preserved byte-for-byte as `seed_original.py`; run `python seed_original.py > seed.json` only when you want its standalone output. The combined generator imports its fleet and pilot constants from that file. Use `python seed.py --today 2026-09-30 > seed.json` for periods `[2025-09-30, 2026-09-30)` and `[2026-09-30, 2027-09-30)`. Generating JSON does not update the database; importing it requires the separate `load_seed` command. An existing database can still contain an older dataset until you deliberately reload it.
 
 In a second terminal:
 
@@ -43,6 +49,7 @@ Open **http://127.0.0.1:5173**. Vite proxies `/api` to Django, so no CORS config
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
+python -m unittest analysis.test_seed analysis.test_seed_utilization
 
 cd frontend
 npm test
@@ -96,6 +103,8 @@ The implementation focuses on the two requested screens and booking correctness.
 charter_app/          Models, API, migration, tests, seed command
 spaceport_project/   Django configuration
 frontend/            React, Vite, Central Time helpers and tests
-seed.py              Original seed generator
+seed.py              Combined supplied-then-aggressive seed generator
+seed_original.py     Preserved original generator and fleet/pilot constants
 documentation/       Challenge rules and architecture notes
+analysis/            Seed validity and utilization investigations with tests
 ```
