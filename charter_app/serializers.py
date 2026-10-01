@@ -48,6 +48,9 @@ class BookingSerializer(serializers.ModelSerializer):
         if not opening <= start < end <= closing:
             raise serializers.ValidationError(
                 'Book a positive duration entirely between 06:00 and 22:00 on one Central Time date.')
+        # Compare each flight's [start, end + 30 minutes) occupancy. The end
+        # comparison below is equivalent to start < existing.end + BUFFER;
+        # it checks the previous flight, while start_time checks the next one.
         # Caller must hold an IMMEDIATE transaction through validation AND save.
         if Booking.objects.filter(
             ship=data['ship'], end_time__gt=start - BUFFER,

@@ -1,4 +1,7 @@
 .venv/
+.tools/
+frontend/test-results/
+frontend/playwright-report/
 __pycache__/
 *.py[cod]
 *.sqlite3

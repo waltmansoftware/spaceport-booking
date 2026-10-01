@@ -10,7 +10,7 @@ The original [challenge rules](documentation/rules.md) are preserved.
 
 See [annual capacity and seed utilization](analysis/capacity-and-utilization.md) for flight-count limits and a measured comparison of busy versus available time in the two consecutive seed periods. Supporting calculations and tests live in the [`analysis/`](analysis/) folder.
 
-See the [implementation walkthrough and ordered MVP plan](documentation/implementation-and-mvp.md) for the full explanation, recruiter feedback, and remaining acceptance checks. The recruiter's end-only refueling clarification exposes a pending correction: the current availability display adds a buffer before each flight as well as after it.
+See the [implementation walkthrough and MVP status](documentation/implementation-and-mvp.md) for the full explanation and recruiter-specific acceptance checks. Availability includes refueling only after each flight; every dashboard booking links directly to its ship's schedule for that date.
 
 ## Run locally
 
@@ -54,9 +54,15 @@ python -m unittest analysis.test_seed analysis.test_seed_utilization
 cd frontend
 npm test
 npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
-Backend tests cover operating boundaries, overnight rejection, overlaps, the exact refueling boundary, timezone offsets and DST dates, invalid inputs, unavailable windows, seed rollback, and simultaneous requests using separate connections to a file-backed test database. Frontend tests cover Central Time conversion and date grouping.
+Backend tests cover operating boundaries, overnight rejection, overlaps, the exact refueling boundary, timezone offsets and DST dates, invalid inputs, unavailable windows, seed rollback, and simultaneous requests using separate connections to a file-backed test database. They also import all 6,000 records, check both years in dashboard and availability responses, and reject overlapping submissions against those imported records. Frontend tests cover Central Time conversion and date grouping.
+
+Browser tests start their own backend and Vite servers on ports 8011 and 5174, refusing to reuse existing servers. They create a temporary database, migrate it, and import a fixed 6,000-booking seed. They verify seeded schedules, conflicts, exact gaps before and after an existing booking, post-submit refresh, dashboard links, persistence across page reloads, Tokyo timezone behavior, and a narrow viewport. Your working database is not touched. The test backend uses the repository's `.venv`; create it before running these tests. On Windows, adjust the Python command in `frontend/playwright.config.js` to `.venv/Scripts/python.exe`. An installed Chrome can be used instead of downloaded Chromium by setting `SPACEPORT_CHROME` to its executable path.
+
+Reviewer walkthrough for `--today 2026-09-30`: open Fleet manager, filter to `2025-09-30`, and open booking #1's schedule. Its flight is 14:00–15:00 with refueling until 15:30. A matching request must fail; 12:30–13:30 or 15:30–16:30 should succeed on a freshly seeded database. Filter to `2026-09-30` to see the aggressive second-year schedules.
 
 `npm run preview` serves the built frontend and proxies API requests to the running Django backend. Development settings and servers are for local evaluation, not a production deployment.
 
@@ -65,7 +71,7 @@ Backend tests cover operating boundaries, overnight rejection, overlaps, the exa
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/ships` | Fleet IDs and names |
-| `GET /api/bookings/unavailable?ship_id=1&date=2026-09-21` | Opening/closing times and merged unavailable windows, including refueling, clipped to that Central date |
+| `GET /api/bookings/unavailable?ship_id=1&date=2026-09-21` | Opening/closing times, merged unavailable windows, and flight/refueling schedule entries calculated for that Central date |
 | `POST /api/bookings` | Validate and create a booking |
 | `GET /api/dashboard` | Ships and all bookings, chronologically ordered; the screen groups by ship |
 | `GET /api/bookings` | Same fleet and booking dataset |
@@ -87,7 +93,7 @@ Success returns the booking, including its `id`, with HTTP 201. Invalid or confl
 
 Django REST Framework validates API inputs; SQLite keeps local setup small. Dates are stored in UTC and interpreted in `America/Chicago` for the rules. Luxon turns the selected date and clock time into a Central Time timestamp independently of the browser's timezone.
 
-A conflict exists when an existing booking ends after the requested start minus 30 minutes **and** starts before the requested end plus 30 minutes. Strict comparisons allow an exact 30-minute gap. The availability endpoint applies the same buffer, merges overlapping blocked intervals, and clips them to operating hours. The booking screen does not fetch the full bookings list.
+A flight occupies `[start, end + 30 minutes)`. Creation compares both the candidate's and existing flights' occupied intervals, including the candidate's own refueling when inserting before another flight. Algebraically, a conflict exists when an existing booking ends after the requested start minus 30 minutes **and** starts before the requested end plus 30 minutes. Strict comparisons allow an exact 30-minute gap. Availability starts each blocked interval at departure and extends only its end, then merges and clips the intervals to operating hours. It also returns each flight's pilot, times, and computed refueling interval for display. React formats these values without doing scheduling arithmetic or fetching the full bookings list for availability.
 
 Creation runs validation and insertion inside one SQLite `IMMEDIATE` transaction. SQLite reserves the writer before the conflict read, so another writer waits and then checks the committed booking. A plain ORM query or `atomic()` with SQLite's default deferred mode would not provide the same guarantee. This deliberately serializes writers across the database, which is reasonable for this small challenge. See [Django's SQLite transaction documentation](https://docs.djangoproject.com/en/5.2/ref/databases/#transactions-behavior).
 
@@ -95,7 +101,7 @@ The database also checks positive duration. Operating hours and overlap rules ar
 
 ## Scope and next steps
 
-The implementation focuses on the two requested screens and booking correctness. It intentionally omits authentication, cancellations, and editing. The dashboard loads the full challenge dataset; a larger deployment would need server-side filtering and pagination. A higher-write-volume deployment would need a different database concurrency strategy. Production would also need deployment settings, static asset serving, and automated browser tests in CI.
+The implementation focuses on the two requested screens and booking correctness. It intentionally omits authentication, cancellations, and editing. The dashboard loads the full challenge dataset; a larger deployment would need server-side filtering and pagination. A higher-write-volume deployment would need a different database concurrency strategy. Production would also need deployment settings and static asset serving. Browser tests are included; wiring them into a hosted CI service remains optional follow-up work.
 
 ## Layout
 

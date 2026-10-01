@@ -2,7 +2,7 @@ import json
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 
@@ -107,8 +107,11 @@ class BookingTests(TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.data['unavailableSlots'], [
             {'start': '2026-09-21T06:00:00-05:00', 'end': '2026-09-21T08:30:00-05:00'},
-            {'start': '2026-09-21T20:30:00-05:00', 'end': '2026-09-21T22:00:00-05:00'},
+            {'start': '2026-09-21T21:00:00-05:00', 'end': '2026-09-21T22:00:00-05:00'},
         ])
+        self.assertEqual(result.data['schedule'][0]['refueling'], {
+            'start': '2026-09-21T07:00:00-05:00', 'end': '2026-09-21T07:30:00-05:00'})
+        self.assertIsNone(result.data['schedule'][-1]['refueling'])
         empty = self.client.get('/api/bookings/unavailable', {'ship_id': self.ship.pk, 'date': '2026-09-22'})
         self.assertEqual(empty.data['unavailableSlots'], [])
 
@@ -135,6 +138,53 @@ class BookingTests(TestCase):
                 call_command('load_seed', str(path), stdout=StringIO())
             self.assertEqual(Ship.objects.get().name, 'Rocinante')
             self.assertEqual(Booking.objects.count(), 1)
+
+
+class ImportedSeedTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from seed import generate_seed
+        cls.seed_data = generate_seed(date(2026, 9, 30))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'seed.json'
+            path.write_text(json.dumps(cls.seed_data))
+            call_command('load_seed', str(path), stdout=StringIO())
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_both_imported_years_are_visible_and_block_conflicts(self):
+        dashboard = self.client.get('/api/dashboard')
+        self.assertEqual(len(dashboard.data['bookings']), 6000)
+        for source in [self.seed_data['bookings'][0], self.seed_data['bookings'][3000]]:
+            with self.subTest(source=source):
+                matching = [b for b in dashboard.data['bookings'] if all(
+                    b[key] == value for key, value in source.items())]
+                self.assertEqual(len(matching), 1)
+                slots = self.client.get('/api/bookings/unavailable', {
+                    'ship_id': source['shipId'], 'date': source['startTime'][:10]})
+                entry = next(b for b in slots.data['schedule'] if b['bookingId'] == matching[0]['id'])
+                self.assertEqual(entry['start'], source['startTime'])
+                self.assertEqual(entry['pilotName'], source['pilotName'])
+                result = self.client.post('/api/bookings', source, format='json')
+                self.assertEqual(result.status_code, 400)
+                self.assertEqual(Booking.objects.count(), 6000)
+
+    def test_insert_before_and_after_imported_flight_at_exact_buffer(self):
+        # The original first flight is 14:00–15:00 for this deterministic seed.
+        source = self.seed_data['bookings'][0]
+        self.assertEqual(source['startTime'], '2025-09-30T14:00:00-05:00')
+        before = {**source, 'startTime': '2025-09-30T12:30:00-05:00',
+                  'endTime': '2025-09-30T13:30:00-05:00'}
+        result = self.client.post('/api/bookings', before, format='json')
+        self.assertEqual(result.status_code, 201)
+        slots = self.client.get('/api/bookings/unavailable', {'ship_id': 1, 'date': '2025-09-30'})
+        self.assertEqual(slots.data['unavailableSlots'][0]['start'], before['startTime'])
+        self.assertIn(result.data['id'], [b['bookingId'] for b in slots.data['schedule']])
+        after = {**source, 'startTime': '2025-09-30T15:30:00-05:00',
+                 'endTime': '2025-09-30T16:30:00-05:00'}
+        self.assertEqual(self.client.post('/api/bookings', after, format='json').status_code, 201)
+        self.assertEqual(Booking.objects.count(), 6002)
 
 
 class ConcurrentBookingTests(TransactionTestCase):

@@ -5,7 +5,12 @@ import "./style.css";
 
 async function api(path, options = {}) {
   const response = await fetch(`/api/${path}`, options);
-  const data = await response.json();
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("The server could not be reached. Please try again.");
+  }
   if (!response.ok) {
     const message =
       typeof data === "object"
@@ -124,6 +129,16 @@ function App() {
       setBusy(false);
       setRevision((value) => value + 1);
     }
+  }
+
+  function openSchedule(booking) {
+    setShipId(String(booking.shipId));
+    setDate(localDate(booking.startTime));
+    setError("");
+    setMessage("");
+    setScreen("charter");
+    setRevision((value) => value + 1);
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   const currentAvailability =
@@ -343,29 +358,53 @@ function App() {
                     <span className="badge">Includes refueling</span>
                   </div>
                   {currentAvailability.unavailableSlots.length ? (
-                    <ul className="slots">
-                      {currentAvailability.unavailableSlots.map((slot) => (
-                        <li key={slot.start}>
-                          <span className="slot-dot" />
-                          <strong>
-                            {clock(slot.start)} — {clock(slot.end)}
-                          </strong>
-                          <span>Unavailable</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <ul className="slots">
+                        {currentAvailability.unavailableSlots.map((slot) => (
+                          <li key={slot.start}>
+                            <span className="slot-dot" />
+                            <strong>
+                              {clock(slot.start)} — {clock(slot.end)}
+                            </strong>
+                            <span>Unavailable</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <h3 className="schedule-title">Flights and refueling</h3>
+                      <ul className="day-schedule" aria-label="Day schedule">
+                        {currentAvailability.schedule.map((flight) => (
+                          <li key={flight.bookingId}>
+                            <strong>
+                              {clock(flight.start)} — {clock(flight.end)}
+                            </strong>
+                            <span>
+                              {flight.pilotName} · Booking #{flight.bookingId}
+                            </span>
+                            <small>
+                              {flight.refueling
+                                ? `Refueling ${clock(flight.refueling.start)} — ${clock(flight.refueling.end)}`
+                                : "Refueling follows after closing."}
+                            </small>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
                   ) : (
                     <div className="empty">
                       <span aria-hidden="true">✧</span>
                       <h3>Clear for departure.</h3>
                       <p>No bookings or refueling windows on this date.</p>
+                      <button className="secondary" onClick={() => setScreen("fleet")}>
+                        Browse booked dates
+                      </button>
                     </div>
                   )}
                   <div className="availability-footer">
                     Book outside these windows, between{" "}
                     {clock(currentAvailability.opensAt)} and{" "}
-                    {clock(currentAvailability.closesAt)}. A flight may end
-                    exactly when a blocked window begins, or start when it ends.
+                    {clock(currentAvailability.closesAt)}. You may depart when
+                    a blocked window ends. Return at least 30 minutes before
+                    the next flight to allow your own refueling.
                   </div>
                 </>
               )}
@@ -430,6 +469,7 @@ function App() {
                                 <th>Departure</th>
                                 <th>Return</th>
                                 <th>Booking</th>
+                                <th>Schedule</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -440,6 +480,15 @@ function App() {
                                   <td>{clock(b.startTime)}</td>
                                   <td>{clock(b.endTime)}</td>
                                   <td>#{b.id}</td>
+                                  <td>
+                                    <button
+                                      className="secondary"
+                                      onClick={() => openSchedule(b)}
+                                      aria-label={`Open schedule for booking ${b.id}`}
+                                    >
+                                      Open schedule
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>

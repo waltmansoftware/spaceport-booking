@@ -1,61 +1,48 @@
-# Implementation walkthrough and path to assessment MVP
+# Implementation walkthrough and MVP status
 
-Written September 22, 2026. This describes the implementation at commit `1d7bdec` and the recruiter feedback supplied afterward. It separates existing behavior from proposed changes; creating this document does not fix the remaining application gaps.
+Updated September 30, 2026 after the recruiter-specific fixes. This describes the current implementation and records what was already complete, what was finished, and what remains for handoff.
 
-**September 30 seed update:** the supplied generator is preserved unchanged as `seed_original.py`. The combined `seed.py` produces 6,000 valid bookings in two consecutive 365-day periods: 3,000 with the supplied timing pattern, followed by 3,000 with the aggressive pattern. The second period includes 30- and 31-minute gaps, 06:00 departures, 22:00 returns, and DST transition dates. `--today YYYY-MM-DD` sets the boundary and first aggressive date. The September 22 database observations below remain a historical snapshot; generating new JSON does not reload the database. See the README for current seed commands. The availability display correction described here is still separate pending work.
-
-**Current assessment:** the application runs locally and implements both requested screens, persistence, server-side availability, and protected booking creation. It should not yet be considered ready to submit against the recruiter's clarified expectations. The most important correction is the availability display's refueling buffer, followed by making seeded bookings easy to find and proving they block new bookings through an automated end-to-end test.
+The booking screen now shows each flight followed by its refueling interval, with no leading buffer. Seeded bookings in either year can be opened directly from the dashboard. Both backend and browser regression tests exercise imported records rather than only newly created bookings. See the [README](../README.md) for setup commands and the [verification record](verification.md) for the checks run during this pass.
 
 ## 1. Requirements and recruiter feedback
 
-The [original challenge](rules.md) asks for React, a Python backend, a database, a booking screen, and a fleet dashboard organized by ship. There is no authentication. Bookings must stay within 06:00–22:00 Central Time, must not overlap on the same ship, and must leave at least 30 minutes between consecutive flights. Unavailability must be calculated by the backend. Submission is a public repository link, with code the candidate can explain and modify during an interview.
+The [original challenge](rules.md) requires React, a Python backend, persistent data, a charter screen, and a fleet dashboard organized by ship. There is no authentication. Each booking must stay entirely within 06:00–22:00 Central on one date, cannot overlap another booking on the same ship, and must leave 30 minutes before the next flight. Availability must be calculated by the backend.
 
-The recruiter adds a material clarification: **refueling occupies the 30 minutes after a booking, not 30 minutes before and after it.** The feedback also identifies seeded-calendar visibility and the ability to book over existing records as rejection reasons. The comments about UI choices are not specific enough to infer a required visual style or calendar library.
+The recruiter clarified that refueling extends only the end of a flight. They also identified missing seeded schedules and successful overlapping bookings as rejection reasons. Their UI feedback did not mandate a calendar library or a particular visual style.
 
-| Requirement or concern | Current implementation | Assessment |
+| Area | State before this pass | Current result |
 | --- | --- | --- |
-| React booking screen | Ship/date selection, time inputs, pilot name, unavailable-window list, submission feedback | Implemented; schedule discoverability needs improvement |
-| Dashboard organized by ship | Per-ship booking tables, all dates by default, optional Central date filter | Implemented |
-| Persistent seed records | Import command writes the provided ships and bookings to SQLite | Implemented and observed locally |
-| Seed bookings visible on the schedule | Date-specific endpoint includes seeded bookings; UI initially opens today | Data path works; historical dates are difficult to discover |
-| No overlapping bookings | Server validates all records for the selected ship before saving | Implemented; add an explicit imported-seed conflict regression |
-| Simultaneous booking requests | Conflict check and insertion share an immediate SQLite transaction | Implemented; separate-connection concurrency test exists |
-| Backend computes unavailability | Server queries, pads, clips, and merges windows; React formats and displays them | Computation is in the required layer |
-| Refueling only after a flight | Display endpoint currently pads both ends | **Known mismatch; fix before submission** |
-| Central operating hours | Full timestamp comparison against opening and closing on one Central date | Implemented, including rejection of overnight bookings |
-| Explainable submission | Runnable project, migration, tests, dependency files, README | Walkthrough below; fresh-clone and final handoff checks remain |
+| Runnable Django project and React screens | Complete | Retained |
+| Operating hours, offset validation, positive duration | Complete | Existing boundary tests retained |
+| Conflict checks and simultaneous requests | Complete | Transactional behavior retained; tested against imported records too |
+| Seed import, rollback, combined two-year generator | Complete | All 6,000 records used in integration and browser fixtures |
+| Availability computation | Implemented, but incorrectly padded before flights | Fixed to departure through flight end plus 30 minutes |
+| Flight/refueling detail | Only merged unavailable ranges were shown | Backend now supplies individual flights, pilots, and refueling intervals |
+| Dashboard schedule navigation | Missing | Each booking opens its ship and Central date in the charter screen |
+| Imported-seed conflict regressions | Partial: import and API creation tested separately | Both years are imported, displayed, and checked for conflicts together |
+| Browser checks | A temporary smoke script existed | Repeatable Playwright suite is included in the repository |
+| Setup instructions and architecture notes | Present, with outdated buffer claims | Updated to match the implemented behavior |
+| Public submission and interview preparation | Not part of implementation | User handoff remains |
 
 ## 2. What was built
 
 ### Overall architecture
 
-The initial repository contained disconnected Django model, serializer, and view files. The implementation placed them in a Django application, added project configuration and a migration, completed the seed command, and built a React interface.
+The repository holds the browser application and Python backend together. React handles user interaction and presentation; Django performs scheduling validation and database access. Vite serves React locally and proxies requests under /api to Django. SQLite provides persistent storage with no separate database service.
 
 ```mermaid
 flowchart LR
-    U[Dispatcher in React] -->|ship and date| A[Availability endpoint]
-    U -->|booking request| V[Validation and transactional save]
-    U -->|open fleet dashboard| D[Dashboard endpoint]
+    U[React charter screen] -->|ship and Central date| A[Availability endpoint]
+    U -->|booking request| V[Transactional validation and save]
+    F[Fleet dashboard] -->|all bookings| D[Dashboard endpoint]
+    F -->|selected ship and date| U
     A --> DB[(SQLite)]
     V --> DB
     D --> DB
-    A -->|computed unavailable windows| U
-    V -->|created booking or error| U
-    D -->|ships and bookings| U
+    A -->|computed windows and schedule| U
 ```
 
-Vite serves the frontend during development and proxies `/api` requests to Django on port 8000. This gives the browser a single origin during local development. The database is the local `db.sqlite3` file. The repository does not contain the generated database, virtual environment, frontend dependencies, or build output.
-
-| Component | Purpose and rationale |
-| --- | --- |
-| React | Implements the two screens with component state and effects; no global state framework is needed for this scope |
-| Vite | Development server, API proxy, and frontend production build |
-| Luxon | Interprets user-selected clock times in America/Chicago independently of the browser's timezone |
-| Django | Database models, migrations, configuration, and management commands |
-| Django REST Framework | Request parsing, field validation, JSON serialization, and HTTP responses |
-| SQLite | Small local setup; supports the chosen transaction strategy without an external database service |
-
-The tested backend versions are pinned in [requirements.txt](../requirements.txt). Frontend dependencies are recorded in [package.json](../frontend/package.json) and resolved in the committed lockfile. The setup targets Python 3.12 and Node 22.12 or later in the Node 22 line.
+React uses local state and effects because two screens do not need a separate global state framework. Luxon interprets clock inputs in America/Chicago, regardless of the browser's timezone. Django REST Framework maps API fields, validates requests, and returns JSON. Python dependencies are pinned; the frontend has an npm lockfile. Playwright is a development dependency for browser checks.
 
 ### Folder and file map
 
@@ -87,6 +74,8 @@ spaceport-booking/                Repository root; run Django commands here
 │   ├── package-lock.json
 │   ├── index.html
 │   ├── vite.config.js
+│   ├── e2e/                      Browser scenarios and isolated test backend
+│   ├── playwright.config.js      Browser test configuration
 │   └── src/                      Frontend source code and helper tests
 │       ├── main.jsx
 │       ├── style.css
@@ -112,7 +101,9 @@ This tree highlights source organization; it omits some small files such as `__i
 | `charter_app/management/` | The conventional package Django uses for an app's custom command organization. It does not implement the Fleet Manager screen. | Organizing backend command-line utilities |
 | `charter_app/management/commands/` | Contains the actual custom commands. Django discovers `load_seed.py` here and makes it available as `python manage.py load_seed`. The nested location is required by Django's command discovery convention. | Changing seed import behavior or adding another maintenance command |
 | `frontend/` | The frontend's own package root: npm dependencies, lockfile, HTML entry point, and Vite configuration live here. Run `npm ci`, `npm run dev`, and `npm run build` from this folder. | Managing frontend dependencies, build settings, or the development API proxy |
+| `frontend/e2e/` | Contains browser acceptance scenarios and a backend launcher that creates its own temporary database. | Changing reproducible browser checks; these files are not served to application users |
 | `frontend/src/` | Contains the JavaScript/JSX and CSS that implement the user interface. Both screens currently live in `main.jsx`; shared time helpers and their tests live alongside it. | Changing forms, schedule presentation, dashboard rendering, or browser time formatting |
+| `analysis/` | Contains seed-validity tests, utilization calculations, and capacity investigations, independent of the running application. | Auditing generated data or reproducing capacity figures |
 | `documentation/` | Contains the original assessment and explanatory Markdown. These files are for developers and reviewers; the application does not load them at runtime. | Updating requirements notes, implementation explanations, or the remaining-work plan |
 
 The **project/app distinction** is the reason for the two Python folders. `spaceport_project/` decides how Django is configured and which features it loads. `charter_app/` implements this application's feature. For example, a request to `/api/bookings` passes through the project URL configuration, then the app URL configuration, then the app's booking handler. Adding another feature later could mean adding another Django app under the same project, not starting another server.
@@ -129,6 +120,8 @@ These are distinct from the source folders above. Some appear only after setup o
 | `.venv/` | Python environment setup | Isolated Python runtime environment and installed backend packages; ignored by Git and recreated from setup instructions |
 | `frontend/node_modules/` | `npm ci` or `npm install` | Installed frontend dependencies; ignored by Git, not application source to edit |
 | `frontend/dist/` | `npm run build` | Generated deployable frontend files; ignored by Git. Edit `src/` and rebuild rather than editing this output |
+| `frontend/test-results/` and `frontend/playwright-report/` | Playwright | Generated browser-test artifacts; ignored by Git |
+| `.tools/` | Local verification setup, when needed | Optional isolated runtimes; ignored by Git and not required when supported Python/Node versions are already installed |
 | `__pycache__/` inside Python folders | Python during execution | Compiled bytecode caches; ignored by Git and regenerated automatically |
 
 `db.sqlite3` and `seed.json` are **files**, not folders. The former contains local persisted records; the latter is generated input for the seed command. Both are ignored by Git. Removing the database loses local bookings unless you have a backup; regenerating/importing seed data is a reset, not recovery of user-created records. In contrast, `migrations/`, `requirements.txt`, and `frontend/package-lock.json` belong in version control so another developer can recreate the schema and install dependencies.
@@ -151,132 +144,77 @@ These are distinct from the source folders above. Some appear only after setup o
 | [style.css](../frontend/src/style.css) | Responsive layout, typography, forms, tables, and notices |
 | [backend tests](../charter_app/tests.py) and [frontend tests](../frontend/src/time.test.js) | Booking/API regressions and timezone helpers |
 
+
 ### Data model and persistence
 
-`Ship` has an automatically assigned ID and a name. `Booking` has an ID, a ship foreign key, pilot name, start timestamp, and end timestamp. Django uses snake_case internally; the API exposes `shipId`, `pilotName`, `startTime`, and `endTime` as requested.
+Ship has an ID and name. Booking has an ID, ship foreign key, pilot name, start time, and end time. Database fields use snake_case; the API exposes shipId, pilotName, startTime, and endTime.
 
-The ship foreign key keeps bookings tied to real ships. Deleting a ship cascades to its bookings, although the application exposes no deletion endpoint. Pilot names are required, trimmed, and limited to 255 characters through the API. The database also requires `end_time > start_time`.
+The API requires an existing ship and a nonblank pilot name of at most 255 characters. The database additionally checks that the end follows the start. A compound index on ship, start time, and end time narrows conflict queries. That index is not an overlap constraint and does not guarantee logarithmic cost for every interval query.
 
-The compound `(ship, start_time, end_time)` index helps narrow interval searches to the relevant ship and candidate times. It is a performance aid, not an overlap constraint or a universal logarithmic-time guarantee.
+Django stores aware timestamps in UTC and interprets the rules in Central Time. Refueling is derived from flight end times, not stored as another booking. The SQLite file persists across application restarts. The default local file is db.sqlite3; SPACEPORT_DB can select another database.
 
-Django stores aware timestamps in UTC. Central Time is used for interpreting the spaceport's operating rules and displaying the schedule. Refueling is derived from flight end times; no separate refueling record is stored.
+### Booking screen and request flow
 
-### Booking screen: what happens when a user books
+1. React loads the fleet and selects a ship and Central date.
+2. The availability endpoint receives that ship/date and computes the operating window, unavailable intervals, and individual schedule entries.
+3. The user enters a pilot name and flight times. Browser checks help with required fields and time ordering; server validation remains authoritative.
+4. Luxon builds offset-bearing ISO timestamps in America/Chicago. React sends these to POST /api/bookings.
+5. The server validates and saves inside one transaction. Success returns the booking and HTTP 201; invalid or conflicting requests return HTTP 400.
+6. React displays the result and reloads availability. A newly saved flight appears immediately, and a rejected stale request receives an updated schedule.
 
-1. React requests the fleet and initially selects the first ship and today's Central date.
-2. Selecting a ship or date triggers the dedicated availability endpoint. The result is a list of already-computed unavailable windows plus opening and closing times.
-3. The user enters start time, end time, and pilot name. Native form constraints help with required fields and clock bounds; a small client check rejects an end time preceding the start.
-4. Luxon combines the selected date and clock times in `America/Chicago`, producing ISO timestamps with the correct offset.
-5. React posts the booking. The server performs authoritative validation; browser controls cannot bypass it.
-6. Success displays the assigned booking ID and flight times. A failure displays the server's error. The app reloads availability after either result, which also refreshes a stale view after another dispatcher takes the slot.
+Loading states disable submission until current availability has arrived. Responses for superseded ship/date selections are ignored. While submitting, the form is disabled. Non-JSON server/proxy failures produce a readable connection error.
 
-During a request, the form is disabled. Availability responses for a previous ship or date are ignored when a newer selection has replaced them. This prevents slow requests from replacing the currently selected schedule.
+The schedule shows merged unavailable windows, followed by individual flights with pilot names and server-calculated refueling times. Refueling beyond closing is identified as occurring after closing. An empty day offers “Browse booked dates,” leading to the fleet log. This is a day schedule expressed as readable rows; it is not a month-view calendar or a selectable slot picker.
 
-The current schedule is a textual unavailable-window list. It does not show a calendar grid, separate flight/refueling bands, or pilot names alongside those windows. The user can enter conflicting times and receive a server error; there is no server-supplied valid-slot picker yet.
+### Fleet dashboard and seeded-date navigation
 
-### Fleet dashboard
+The dashboard retrieves ships and all bookings in two database queries. Bookings are chronologically ordered, and React groups them by ship. The optional date filter uses Central dates, including flights whose UTC timestamp falls on the next day.
 
-The dashboard endpoint returns ships and all bookings in two queries. Bookings are ordered chronologically. React groups them under each ship and can filter them using the booking's Central Time date. This client-side grouping is allowed: it is presentation of the dashboard, not calculation of booking-screen unavailability.
+Each row has an “Open schedule” button. It sets the selected ship and Central date, opens the charter screen, and fetches that day's dedicated availability endpoint. It does not calculate availability from dashboard history. Both the original-pattern year and aggressive year are reachable this way.
 
-Each table shows date, pilot, departure, return, and booking ID. The screen defaults to all dates so historical seed records are included. Refresh reloads the dataset. Approximately 3,000 rows is manageable for the assessment; server-side filtering and pagination are a later scaling improvement.
+Loading all 6,000 rows keeps this assessment implementation simple. A larger dataset would benefit from server-side filtering and pagination. The dashboard supports refresh, and reopening it fetches current data.
 
 ### API contract
 
-| Method and path | Input | Result |
-| --- | --- | --- |
-| `GET /api/ships` | None | Array of ship IDs and names |
-| `GET /api/bookings/unavailable` | `ship_id` and `date=YYYY-MM-DD` query parameters | Central opening/closing timestamps and computed unavailable windows |
-| `POST /api/bookings` | JSON booking fields | HTTP 201 with saved booking, or validation error |
-| `GET /api/dashboard` | None | Object containing ships and bookings |
-| `GET /api/bookings` | None | Same dataset as the dashboard |
+| Endpoint | Result |
+| --- | --- |
+| GET /api/ships | Fleet IDs and names |
+| GET /api/bookings/unavailable?ship_id=1&date=2025-09-30 | Operating window, computed unavailable ranges, and flight/refueling entries |
+| POST /api/bookings | Validate and save a booking; return the saved record |
+| GET /api/dashboard | Ships and all bookings |
+| GET /api/bookings | Same fleet/booking dataset |
 
-A booking request looks like this:
+Availability returns date, shipId, opensAt, closesAt, unavailableSlots, and schedule. Each schedule entry includes bookingId, pilotName, start, end, and a refueling object with start/end timestamps. Refueling is null when none of it falls inside the operating day, such as a flight returning at 22:00.
 
-```json
-{
-  "shipId": 3,
-  "pilotName": "Beverly Crusher",
-  "startTime": "2026-09-22T09:00:00-05:00",
-  "endTime": "2026-09-22T10:00:00-05:00"
-}
-```
+Returning timestamps does not violate the backend-computation requirement. The frontend formats already-calculated intervals. It never adds a buffer, merges ranges, or derives free time from booking history.
 
-Invalid booking fields or conflicts return HTTP 400. Availability requests for a missing ship return 404, while malformed parameters return 400. A booking writer that exhausts the SQLite lock timeout returns 503 with a retry message. There is no authentication, as requested.
+Malformed inputs return HTTP 400. The availability endpoint returns 404 for a missing ship. A booking request that exceeds the SQLite writer lock timeout receives HTTP 503 with a retry message. The dashboard endpoint accepts GET only.
 
-The server returning timestamps does not itself violate the backend-calculation requirement. The relevant distinction is that React receives **computed unavailable windows** and formats their times. It does not receive raw history and add buffers, merge ranges, or derive free slots from that history.
+### Operating hours and timezone behavior
 
-### Operating hours and timezones
-
-The server converts both input timestamps to Central Time and constructs opening and closing on the start date. It requires:
+The server requires explicit offsets or Z on timestamps, converts them to Central, and builds 06:00 and 22:00 on the start's local date. It checks:
 
 ```text
 opening <= start < end <= closing
 ```
 
-This permits a flight starting exactly at 06:00 or ending exactly at 22:00. It rejects zero duration, negative duration, any end after closing, and overnight or multi-day flights. Inputs without an explicit offset or `Z` are rejected so server-local timezone settings cannot silently reinterpret them.
+This permits exact opening and closing boundaries and rejects overnight, multi-day, zero-duration, and negative-duration flights. Passing two individually valid clock hours on different dates does not satisfy the rule.
 
-The UI likewise uses Central Time even if the dispatcher is in another country. Named-zone conversion handles the Central offset for the selected date; hardcoding `-05:00` would be incorrect in winter. API and JavaScript tests include winter, summer, and DST transition dates.
+The Central date governs the rule, even when UTC crosses midnight. Named-zone conversion handles winter, summer, and transition dates; hardcoding a single UTC offset would be wrong. The frontend likewise uses Central Time even when the browser is in Tokyo, as exercised by the browser suite.
 
-### Concurrency and overlap protection
+The rule constrains bookings. The implementation permits a final flight to return at 22:00, with refueling afterward. A stricter requirement that all refueling finish before closing would change the latest allowed return; it is not part of the supplied instructions.
 
-The booking endpoint enters `transaction.atomic()` before validating the request and stays inside it until insertion completes. The database connection uses SQLite's `IMMEDIATE` transaction mode, reserving the writer before the conflict query.
+### Refueling and the two neighboring gaps
 
-A second writer waits. After the first writer commits, the second validates against that newly stored booking and rejects a conflicting request. The committed test exercises simultaneous requests through separate database connections and expects exactly one HTTP 201, one HTTP 400, and one saved booking.
+Each flight occupies its departure through its return plus 30 minutes:
 
-This depends on the database configuration and the transaction boundary together. The ORM query alone does not lock a time range. All ships share SQLite's writer reservation, so even unrelated writes serialize; that is an accepted small-application tradeoff. Direct ORM writes and the seed importer do not use booking serializer validation.
+```text
+occupied interval = [flight.start, flight.end + 30 minutes)
+```
 
-### Seed data: generation, import, and visibility
+An existing 12:00–13:00 flight therefore blocks 12:00–13:30, with no 11:30–12:00 leading block.
 
-The original generator, now preserved as [seed_original.py](../seed_original.py), starts one year before the generation date and generates up to 600 flights for each of five ships. Its random choices use a fixed seed, but calendar dates depend on the day it runs. Reaching the booking count can stop generation well before today; its records do not necessarily span a complete year. The combined [seed.py](../seed.py) reproduces that pattern inside the first 365-day period, then places 600 aggressive bookings per ship across 60 dates in the immediately following period. This makes the source patterns consecutive without mixing or overlapping them. The following September 22 observations concern the earlier standalone original dataset.
-
-`load_seed` reads the JSON, deletes existing bookings and ships, and bulk inserts replacements inside one transaction. A failed import rolls back those mutations. This is a reset command for the supplied trusted data, not a general validated import API.
-
-Read-only verification on September 22 found **5 ships and 3,000 bookings** in the local database. The earliest start was September 21, 2025 at 12:00 UTC; the latest end was May 26, 2026 at 19:00 UTC. All these records are historical relative to this document's date.
-
-The dashboard endpoint returned all 3,000 records. The availability endpoint returned windows for **Serenity, ship ID 3, September 21, 2025**, confirming that imported data reaches the scheduling query. One flight that day is Beverly Crusher's 07:00–09:30 Central charter. The current endpoint exposes 06:30–10:00 for that flight, which also demonstrates the incorrect leading buffer. Under the clarified rule its occupied/refueling window should be 07:00–10:00.
-
-An empty view today therefore does not prove an import failure. However, requiring an evaluator to discover an old date manually is a real usability problem. Seeded schedules need an obvious navigation path.
-
-### Verification completed and its limits
-
-During implementation, nine backend tests and two frontend tests passed, along with Django checks, migration consistency, and a Vite production build. A temporary browser smoke script also verified successful creation, conflict rejection, dashboard date filtering, a simulated Tokyo timezone, and a mobile viewport without horizontal overflow.
-
-That browser script was temporary tooling, not a committed repeatable browser test suite. It created a new future booking; it did not prove an imported seed record's complete display-and-conflict flow. This documentation pass performed read-only database and endpoint checks, not a fresh run of the entire test suite.
-
-The existing availability test explicitly expects the leading 30-minute buffer. **Passing that test demonstrates the implemented behavior, not compliance with the new clarification.** It must change along with the endpoint. Separate tests of gaps before and after a requested booking should remain.
-
-## 3. Refueling: the correction and the subtle distinction
-
-This is the highest-priority finding from the recruiter's feedback. My earlier implementation used symmetric padding in both the conflict query and the displayed availability calculation. Those two uses have different meanings.
-
-### What the schedule should display
-
-For an existing flight from 12:00 to 13:00:
-
-| Interval | Current display | Required interpretation |
-| --- | --- | --- |
-| 11:30–12:00 | Unavailable because of leading padding | No refueling belonging to this existing flight |
-| 12:00–13:00 | Unavailable | Flight |
-| 13:00–13:30 | Unavailable | Refueling after the flight |
-| From 13:30 | Outside this blocked window | A following flight may begin |
-
-The backend should calculate occupied time as `[flight.start, flight.end + 30 minutes)`, clipped to the displayed operating day. If the UI separates flight and refueling labels, the backend should supply those intervals explicitly. React should not calculate a missing refueling interval itself.
-
-### Why validation must still check both neighboring gaps
-
-End-only refueling does not mean only checking the preceding existing booking. A newly requested flight also needs its own 30 minutes after it, including when it is being inserted before an existing flight.
-
-For the same existing 12:00–13:00 flight:
-
-| Requested flight | Expected result | Reason |
-| --- | --- | --- |
-| 10:30–11:30 | Accept | Its refueling ends at 12:00 |
-| 11:00–12:00 | Reject | Its own refueling would overlap the existing flight |
-| 12:15–12:45 | Reject | Flight overlap |
-| 13:00–14:00 | Reject | Existing flight is still refueling |
-| 13:30–14:30 | Accept | Exactly 30 minutes after the existing flight |
-
-For existing flight `E` and candidate `C`, comparing their end-buffered occupied intervals yields:
+A candidate also has its own refueling interval. For existing E and candidate C, conflict detection is:
 
 ```text
 E.start < C.end + 30 minutes
@@ -284,90 +222,96 @@ AND
 C.start < E.end + 30 minutes
 ```
 
-The current serializer writes the second condition equivalently as `E.end > C.start - 30 minutes`. That algebra is correct for a single 30-minute gap. It does not impose 60 minutes between flights. Removing the candidate's refueling consideration would introduce a bug when inserting an earlier booking.
+The serializer writes the second condition equivalently as E.end > C.start − 30 minutes. That subtraction checks the preceding flight's trailing occupancy; it does not add a leading refueling block to the displayed schedule.
 
-The plan is therefore to **fix the displayed occupancy calculation and explain validation in terms of each flight's own trailing buffer**. Do not mechanically delete every subtraction of 30 minutes from the code. Query bounds used to find relevant records also need reasoning about which intervals they are retrieving.
-
-## 4. Ordered next steps to reach MVP
-
-Here, MVP means a working, reproducible assessment submission satisfying the original prompt and the recruiter's clarification. It does not require accounts, payments, cancellations, a cloud deployment, or a large scheduling framework.
-
-### Step 1 — Correct and document the backend availability contract
-
-Change `get_unavailable_slots` to begin each occupied interval at the actual flight start and end it 30 minutes after the flight ends. Review its query bounds, clipping, and merging under that definition. Keep creation protected by the immediate transaction and retain checks against both neighboring flights.
-
-Use one clearly described rule for refueling in the endpoint, serializer comments, UI copy, README, and architecture notes. If separate flight/refueling visuals are introduced, return their already-computed intervals from the backend, optionally alongside merged unavailable windows.
-
-**Done when:** a 12:00–13:00 flight blocks 12:00–13:30 on the schedule; a 13:30 departure succeeds; a preceding flight ending 11:30 succeeds; one ending 12:00 fails. There is no extra leading refueling block and no accidental 60-minute requirement.
-
-### Step 2 — Add the recruiter-specific regression tests
-
-Update the availability test that currently asserts symmetric padding. Add a test that imports seed-shaped data with `load_seed`, retrieves that same record through the dashboard and selected-day availability endpoint, and submits an overlapping booking against it. Assert HTTP 400 and an unchanged row count.
-
-Also cover both sides of the exact 30-minute boundary, different ships at the same time, a newly created booking immediately appearing in availability, and the existing simultaneous-request case. Keep deterministic fixture dates for unit tests; do not depend on today's date matching historical data.
-
-**Done when:** the reported rejection scenarios are reproducible automated checks, including overlap against imported data rather than only records created by the booking endpoint.
-
-### Step 3 — Make the seeded schedule easy to find and read
-
-Add a direct way to open a ship/date from a dashboard booking in the charter screen. This uses the selected booking's ship and Central date to request the availability endpoint; it must not reuse full dashboard history to calculate availability. Make an empty day explain that other dates can contain bookings and provide an obvious route to the fleet log.
-
-A simple day timeline or clearly separated schedule rows can distinguish flight time from its following refueling period. This is a recommendation in response to the recruiter's calendar/UI concern; the original prompt does not mandate a month grid or a specific calendar library. Keep labels, operating hours, and Central Time visible on mobile as well as desktop.
-
-Update the current boundary guidance when replacing symmetric display windows: apparent free time immediately before an existing flight may be too short for a candidate plus its own refueling. If the UI offers selectable valid slots, have the backend compute them for the chosen duration. Do not introduce frontend scheduling arithmetic to make the new UI work.
-
-**Done when:** a reviewer can open a seeded flight's day directly, see the flight and trailing refueling clearly, and attempt a conflicting booking that the backend rejects. An empty view today cannot reasonably be mistaken for missing seed data.
-
-### Step 4 — Commit a repeatable browser acceptance test
-
-Run against a fresh test database loaded with a deterministic fixture. Cover seed visibility on both screens, an overlapping booking rejection, an exact-boundary success, updated availability after creation, and correct ship/date navigation. Check a browser timezone outside Central and a narrow viewport. Assert that the charter flow gets availability from its dedicated endpoint.
-
-Use an isolated database for these tests so they cannot reset a user's working data. A single documented command is enough for this assessment; a large browser-testing framework or extensive CI pipeline is unnecessary.
-
-**Done when:** another developer can reproduce the critical browser checks from the repository, and the same flow works manually with the original generated seed file.
-
-### Step 5 — Perform a fresh-clone rehearsal and align the docs
-
-Follow the README with supported Python and Node versions, install dependencies, migrate, generate/import seeds, and start both servers. Run backend tests, frontend tests, migration checks, the production build, and the browser acceptance flow. Confirm seeded records after a server restart to demonstrate persistence.
-
-Update documentation and screenshots to the corrected behavior. Include a short reviewer path: open the fleet log, open an existing booking's day, try a conflict, then create a valid booking. Record actual verification results and any remaining limitations rather than asserting general production readiness.
-
-**Done when:** no undocumented file, temporary tool, existing database, or cached dependency is necessary to run and assess the application.
-
-### Step 6 — Prepare the submission and technical walkthrough
-
-Review the final changes, commit the completed implementation and documentation, and prepare the public repository handoff required by the prompt. This document does not itself publish anything or send the recruiter a message.
-
-Practice explaining the request flow, end-only refueling math, why validation occurs inside the transaction, why all dates use Central Time, how seeded records enter the same queries as new records, and the limitations of SQLite and bulk seed import. Be prepared to locate each behavior in the files above and make a small modification live.
-
-**Done when:** the submitted repository is the tested version, its instructions work, and the implementation's tradeoffs can be explained without relying on unsupported claims.
-
-## 5. Gotchas and remaining limitations
-
-For the numerical capacity limits and both consecutive periods' occupancy, see [annual capacity and seed utilization](../analysis/capacity-and-utilization.md). The supporting scripts and tests are isolated in the top-level `analysis/` folder. The aggressive period stresses turnaround boundaries on selected days; it does not represent higher annual utilization.
-
-| Gotcha | Practical implication |
+| Request relative to an existing 12:00–13:00 flight | Result |
 | --- | --- |
-| Old tests encode the old interpretation | Update the availability assertions; a green suite alone does not settle a clarified requirement |
-| Occupied intervals differ from valid candidate slots | End-only displayed occupancy must still account for the candidate's own refueling during creation |
-| Refueling after a 22:00 return | Current validation permits the flight to end at 22:00 and clips display to closing. This assumes the operating-hours rule applies to bookings, with refueling allowed after closing; a stricter turnaround rule would change the latest return |
-| Entirely historical seed data | Today can be empty even after a correct import. Use actual imported dates and an obvious schedule navigation path |
-| Seed dates move when regenerated | The fixed random seed fixes choices, not absolute calendar dates. Document examples as examples, not permanent fixtures |
-| `load_seed` resets the database | It replaces user-created bookings too. Use a separate database for tests and only reset intentionally |
-| Bulk import bypasses serializer rules | Trusted seed data is assumed. Arbitrary imports would require separate validation; the database alone does not enforce operating hours or exclusion |
-| SQLite concurrency depends on settings | A new write endpoint must preserve the transaction-before-validation pattern. Swapping databases requires revisiting the strategy |
-| Stale schedules and lost responses | Another user can book after availability is loaded; POST remains authoritative. After a lost success response, check the dashboard before assuming no booking was saved; there is no idempotency-key feature |
-| Merged windows lose booking detail | A merged unavailable range cannot show which pilot owns each flight. Supply separate server-calculated display entries if the schedule needs that detail |
-| Browser timezone and date grouping | Use America/Chicago for input conversion and grouping, not browser-local dates or the date portion of a UTC string |
-| Minute inputs versus precise API timestamps | UI inputs use minute precision; backend comparisons include seconds. Boundary tests should retain second-level cases |
-| No restriction on historical bookings | The original prompt does not forbid them. Historical-date tests and demos currently work; do not add a future-only rule implicitly |
-| Dashboard loads the full dataset | Reasonable for this challenge; pagination and backend filtering can follow if data volume grows |
-| Limited UI error handling | API errors are displayed, but non-JSON proxy failures can surface a JSON parse error. A friendly connectivity message would improve the final polish |
-| Local configuration and assets | Debug mode, a development secret, local hosts, Vite proxying, and Google-hosted fonts suit local evaluation. Public hosting needs deliberate configuration; fonts fall back when offline |
-| Environment used during implementation | The machine originally had older default Python and Node versions. Verification used isolated newer tooling, some under temporary directories. Those paths are not a durable installation method; the README's supported runtimes are the reproducible setup |
+| 10:30–11:30 | Allowed: its own refueling ends at 12:00 |
+| 11:00–12:00 | Rejected: its refueling would overlap the existing departure |
+| 12:15–12:45 | Rejected: flight overlap |
+| 13:00–14:00 | Rejected: existing refueling is unfinished |
+| 13:30–14:30 | Allowed: exact 30-minute gap |
 
-## 6. What can wait until after assessment MVP
+Availability clips occupied intervals to the selected operating day and merges touching or overlapping ranges. Flight/refueling detail remains available separately so merged ranges do not hide individual flights.
 
-Authentication is explicitly excluded. Editing, cancellation, payments, notifications, ship administration, live updates, and recurring bookings are outside the requested scope. Production hosting, stronger deployment configuration, broader import validation, pagination, and a database designed for higher concurrent write volume are possible later work.
+Free-looking clock time is not always enough for another flight plus its refueling. The UI explains that a flight must return at least 30 minutes before the next departure. Submission remains the final validity check. If a future UI offers selectable valid slots, those should also be calculated on the backend for the requested duration.
 
-The challenge asks for a focused result in roughly two to three hours and an honest note if more time is needed. Prioritize the demonstrated rejection risks: correct trailing refueling, visible seeded schedules, and reliable server-side rejection of conflicts. Record unfinished extras instead of expanding scope before those acceptance checks pass.
+### Concurrency
+
+The booking endpoint enters transaction.atomic() before validating and stays inside through insertion. The SQLite connection uses IMMEDIATE mode, reserving the writer before the conflict read. A second writer waits, then validates against the first committed booking.
+
+The concurrency test submits simultaneous API requests using separate connections and expects one success, one conflict rejection, and one saved record. A plain ORM filter does not supply this guarantee. This implementation also serializes writers for different ships, which is acceptable for the small assessment.
+
+The database constraint enforces positive duration. Operating hours and conflict rules live in the API. Direct ORM writes must respect them, and a future write endpoint must retain the same transaction boundary. Changing database engines requires revisiting this strategy.
+
+### Seed generation and import
+
+The supplied generator is preserved as seed_original.py. The combined seed.py reproduces its timing pattern in the first 365-day period and uses the aggressive pattern in the following 365 days. Each pattern contributes 600 flights per ship, for 6,000 bookings across five ships.
+
+The supplied pattern has at least 60 minutes between flights because it adds idle time after refueling. The aggressive pattern uses exact 30- and 31-minute gaps and guarantees opening, closing, and DST-date coverage on its 60 selected dates. The anchor parameter names the first date of the aggressive period.
+
+For --today 2026-09-30, the periods are [2025-09-30, 2026-09-30) and [2026-09-30, 2027-09-30). Seed tests verify that the first pattern matches the preserved generator for that anchor, both periods satisfy the rules, and generation is deterministic.
+
+The load_seed command reads JSON and replaces ships and bookings inside a transaction. Failure rolls back the replacement. It is a reset command for trusted fixture data, not a generally validated import API. Merely generating JSON does not reload the database.
+
+For an explicit demonstration on a freshly loaded fixture, open USS Wanderer's September 30, 2025 schedule. Booking #1 is 14:00–15:00, followed by refueling until 15:30. An overlapping request fails; 12:30–13:30 and 15:30–16:30 succeed. The aggressive period begins September 30, 2026 and includes 06:00 and 07:30 departures.
+
+See [annual capacity and utilization](../analysis/capacity-and-utilization.md) for the numerical comparison. Dense selected days do not imply higher annual utilization.
+
+## 3. Ordered MVP steps and current status
+
+### Step 1 — Correct availability: implemented
+
+Occupied windows begin at departure and extend only the flight's end. Existing conflict validation continues to account for both neighboring flights. Server-generated schedule entries let the UI distinguish flight and trailing refueling.
+
+Acceptance: imported 14:00–15:00 flight displays 14:00–15:30, a preceding flight ending 13:30 succeeds, one ending 13:31 fails, and a following flight starting 15:30 succeeds.
+
+### Step 2 — Test imported records: implemented
+
+Backend tests import the complete generated fixture using the real management command. They verify both periods in the dashboard and schedule and reject overlaps without adding records. Existing operating-hour, invalid-input, rollback, and concurrent-request cases remain.
+
+### Step 3 — Make seeded schedules discoverable: implemented
+
+Dashboard rows open their ship/date on the charter screen. Empty days link to the fleet log. The schedule labels flight and refueling intervals returned by the backend. This addresses the reported seed-visibility failure without requiring a calendar library.
+
+### Step 4 — Add repeatable browser tests: implemented
+
+The repository includes two Playwright scenarios. Their backend launcher creates a temporary database, migrates, and imports all 6,000 records. Tests use separate ports and refuse existing servers, so they cannot silently operate on the user's working app.
+
+They cover imported schedule visibility, conflict rejection, both exact-gap insertions, refresh after creation, persistence after page reload, dashboard links into both years, Tokyo timezone, and mobile overflow. This replaces the earlier temporary smoke script. Browser binaries must be installed separately or an installed Chrome executable supplied.
+
+### Step 5 — Rehearse setup and align documentation
+
+The [verification record](verification.md) records the clean-copy rehearsal and results. It uses newly installed dependencies, a fresh database, migrations, the generated combined seed, tests, and a frontend build. Follow the README rather than relying on the original development environment's temporary tooling.
+
+### Step 6 — Final user review and submission: remaining
+
+Review the UI and documented tradeoffs, commit the tested changes, and publish the repository when ready. No recruiter message or publication is performed by these local changes.
+
+Practice walking from the form to availability, validation, transaction, and saved record. Explain the difference between displayed trailing occupancy and the candidate's own turnaround, why Central Time is explicit, and why SQLite serializes writers. These are the most relevant interview topics.
+
+## 4. Gotchas and deliberate limits
+
+| Issue | Practical implication |
+| --- | --- |
+| A working DB may still contain older seeds | Generating JSON and running tests do not overwrite it; load_seed is a separate intentional reset |
+| Historical empty dates | They can be valid; use the fleet log and Open schedule to find seeded dates |
+| No future-only rule | Historical bookings are allowed because the prompt does not prohibit them |
+| Final refueling after 22:00 | Allowed by the booking-hours interpretation; display is clipped to closing |
+| Strict boundary comparisons | Exactly 30 minutes succeeds; 29 minutes 59 seconds fails |
+| Trusted bulk import | It bypasses API scheduling validation; malformed imports are not a supported general user flow |
+| Stale availability | Another user can book before submission; the transaction rechecks conflicts |
+| Lost success response | There is no idempotency key; check the dashboard before assuming nothing was saved |
+| Local browser controls | They improve usability but are not the scheduling authority |
+| SQLite configuration | New write paths or a database replacement must preserve/revisit concurrency guarantees |
+| Full-history dashboard | Suitable for the tested fixture; larger deployments need pagination and filtering |
+| Local configuration | Debug mode, development secret, and local hosts are for evaluation, not deployment |
+| Optional web fonts | Offline environments use fallback fonts |
+| Runtime setup | Use supported Python and Node versions; temporary tool paths from earlier sessions are not setup requirements |
+| Test isolation | Browser tests use a disposable DB; Django uses its dedicated file-backed test DB to exercise separate connections |
+
+## 5. After MVP
+
+Authentication is explicitly excluded by the prompt. Editing, cancellations, notifications, recurring bookings, payments, and ship administration are outside scope. Production deployment settings, hosted CI, import hardening, pagination, and a database strategy for more concurrent writers are follow-up work.
+
+The assessment asks for a focused working submission and code the candidate can explain. The remaining handoff is a user usability review, an accurate commit/public repository submission, and interview preparation; the recruiter-specific implementation gaps are addressed.

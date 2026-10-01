@@ -51,7 +51,7 @@ This comparison separates three uses of operating time:
 - **Refueling time:** the next 30 minutes after a flight, counting only the portion before 22:00.
 - **Available time:** operating time outside both flight and refueling intervals.
 
-For each ship and Central calendar day, merge occupied intervals `[flight start, flight end + 30 minutes)` after clipping them to 06:00–22:00. Merging prevents double counting. There is **no leading buffer**. This uses the recruiter's clarified rule, independently of the application's still-pending symmetric availability-display correction.
+For each ship and Central calendar day, merge occupied intervals `[flight start, flight end + 30 minutes)` after clipping them to 06:00–22:00. Merging prevents double counting. There is **no leading buffer**. This uses the recruiter's clarified rule and matches the corrected availability endpoint.
 
 ```text
 Busy hours = flight hours + refueling hours within operating hours
