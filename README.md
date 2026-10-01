@@ -11,7 +11,7 @@ Bookings must start in the future and remain within 06:00–22:00 Central Time. 
 
 ## Run locally
 
-Requires Python 3.12+ and Node.js 22.12+.
+Requires Python 3.12+ and Node.js 22.18+.
 
 In VS Code, press **F5** or **Ctrl+Shift+B** (**Cmd+Shift+B** on macOS). The task works on macOS, native Windows, and WSL.
 

@@ -65,12 +65,12 @@ def require_node():
                 node,
                 "-e",
                 "const [a,b]=process.versions.node.split('.').map(Number);"
-                "process.exit(a>22||(a===22&&b>=12)?0:1)",
+                "process.exit(a>22||(a===22&&b>=18)?0:1)",
             ]
         )
         if result.returncode == 0:
             return
-    raise RuntimeError("Node.js 22.12 or newer is required.")
+    raise RuntimeError("Node.js 22.18 or newer is required.")
 
 
 def ensure_pip():

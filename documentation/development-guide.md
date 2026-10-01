@@ -4,7 +4,7 @@ This guide contains the operational detail intentionally omitted from the root R
 
 ## Environment and startup
 
-Use Python 3.12 or later and Node.js 22.12 or later. SQLite is included with Python and creates `db.sqlite3` locally.
+Use Python 3.12 or later and Node.js 22.18 or later. SQLite is included with Python and creates `db.sqlite3` locally. The Node minimum includes the CSpell tooling used by CI.
 
 ```sh
 # macOS or WSL
